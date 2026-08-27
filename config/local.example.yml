@@ -34,10 +34,3 @@ Database:
 Cors:
   allowed_origins:
     - "http://localhost:4204"
-
-SQS:
-  # Messaging is off by default; the API works without AWS credentials.
-  enabled: false
-  region: "us-east-1"
-  # Point at LocalStack for local development, e.g. http://localhost:4566.
-  endpoint: ""

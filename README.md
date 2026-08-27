@@ -28,17 +28,16 @@ Go (Gin) service backed by PostgreSQL and Redis, with a small React SPA in front
 Strict layering, enforced by convention and documented in [CLAUDE.md](CLAUDE.md):
 
 ```
-route → controller → service → repository (+ clients) → Postgres / Redis / SQS / external APIs
+route → controller → service → repository → Postgres / Redis
 ```
 
 - **Controllers** own HTTP: binding, validation, mapping, and the response envelope.
 - **Services** own business logic. They never see a Gin type or an HTTP status code.
 - **Repositories** own persistence. They take and return domain models.
-- **Clients** own outbound integrations, behind interfaces so they can be faked in tests.
 
-Cross-cutting infrastructure lives in `pkg/` — logging, database, cache, HTTP client, SQS/SNS, telemetry, validation, mapping and the response helpers. There are **no private dependencies**; everything is either in this repo or a public module.
+Cross-cutting infrastructure lives in `pkg/` — logging, database, cache, telemetry, validation, mapping and the response helpers. There are **no private dependencies**; everything is either in this repo or a public module.
 
-**Stack:** Go 1.24 · Gin · GORM · PostgreSQL 16 · Redis 7 · golang-migrate · zerolog · OpenTelemetry · Prometheus · AWS SDK v2 (SQS/SNS) · Vite 7 · React 19 · TypeScript · Tailwind CSS 3 · shadcn/ui · Biome
+**Stack:** Go 1.24 · Gin · GORM · PostgreSQL 16 · Redis 7 · golang-migrate · zerolog · OpenTelemetry · Prometheus · Vite 7 · React 19 · TypeScript · Tailwind CSS 3 · shadcn/ui · Biome
 
 ---
 
@@ -112,8 +111,6 @@ Configuration is validated at startup — a missing database DSN or an unknown e
 | `BASE_URL`          | no       | empty         | Public base URL of the service           |
 | `OTLP_EXPORTER_URL` | no       | empty         | OTLP/HTTP endpoint; empty disables traces|
 | `CORS_ALLOWED_ORIGINS` | no    | empty         | Comma-separated browser origins allowed to call the API |
-| `SQS_ENABLED`       | no       | `false`       | Enable AWS messaging                     |
-| `AWS_REGION`        | no       | `us-east-1`   | AWS region for SQS/SNS                   |
 
 ---
 
@@ -288,7 +285,6 @@ docker run -p 4201:4201 \
 │   ├── server/            # entry point
 │   └── app/               # composition root, routes, middlewares
 ├── internal/
-│   ├── clients/           # outbound integrations (SQS/SNS)
 │   ├── config/            # config struct, loading, validation
 │   ├── controllers/       # HTTP handlers
 │   ├── exceptions/        # ApplicationError + error catalogue
@@ -301,8 +297,6 @@ docker run -p 4201:4201 \
 │   ├── global/            # environments, headers, context keys
 │   ├── log/               # structured logger
 │   ├── mapper/            # DTO ↔ model conversion
-│   ├── network/           # shared outbound HTTP client
-│   ├── queue/awssqs/      # SQS/SNS wrapper + worker receiver
 │   ├── telemetry/         # tracing, metrics, request IDs
 │   ├── utils/             # response envelope helpers
 │   └── validation/        # request validation helpers
@@ -336,7 +330,6 @@ Adding a feature? Follow the checklist in [CLAUDE.md §10](CLAUDE.md).
 - **The scraping feature is not implemented yet.** The repository currently ships the platform: layering, config, migrations, cache, telemetry, health probes, containers, CI and deployment. The LinkedIn client, its models and its endpoints come next.
 - **Automatic migrations.** Migrations run on every boot from the container's working directory. This is convenient for a single instance; a multi-replica rollout should move them to a release step so two replicas cannot race.
 - **Free-tier deployment.** Render's free plan sleeps idle services, so the first request after a quiet period is slow, and the free Postgres and Key Value instances have small quotas.
-- **SQS/SNS is disabled by default.** It needs AWS credentials and creates topics and queues on demand. Enable it with `SQS_ENABLED=true`, or point `SQS.endpoint` at LocalStack for local work.
 - **Tracing is off unless configured.** Set `OTLP_EXPORTER_URL` to a collector to turn it on. Prometheus metrics are always available at `/metrics`.
 - **No authentication yet.** The `/v1` protected group exists but has no auth middleware behind it. Anything sensitive must not be mounted there until one is added.
 - **No rate limiting yet.** `TMR01` is catalogued but nothing enforces a limit; add one before exposing scraping endpoints publicly.

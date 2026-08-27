@@ -69,9 +69,6 @@ func TestProductionConfigDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "info")
 	}
-	if cfg.SQS.Enabled {
-		t.Error("SQS.Enabled = true, want false")
-	}
 	// An empty slave DSN must fall back to the master.
 	if cfg.Database.SlaveDatabaseDsn != cfg.Database.MasterDatabaseDsn {
 		t.Errorf("SlaveDatabaseDsn = %q, want it to fall back to the master DSN", cfg.Database.SlaveDatabaseDsn)

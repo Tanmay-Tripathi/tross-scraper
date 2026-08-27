@@ -1,7 +1,6 @@
 package services
 
 import (
-	"github.com/Tanmay-Tripathi/tross-scraper/internal/clients"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/config"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/db"
@@ -20,7 +19,6 @@ func NewServices(
 	repos *repositories.Repositories,
 	cache db.CacheStoreMethods,
 	logger log.Logger,
-	clients *clients.Clients,
 ) *Services {
 	access := &ServiceAccess{
 		Cfg:          cfg,
@@ -28,7 +26,6 @@ func NewServices(
 		Cache:        cache,
 		Logger:       logger,
 		Repositories: repos,
-		Clients:      clients,
 	}
 
 	return &Services{
