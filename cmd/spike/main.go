@@ -24,6 +24,9 @@ func main() {
 	configPath := flag.String("config", "./config/local.yml", "path to the config file")
 	outDir := flag.String("out", "./testdata/fixtures", "directory to write raw responses into")
 	pause := flag.Duration("pause", 3*time.Second, "delay between profiles, to stay human-paced")
+	// Off by default: /voyager/api/me appears to invalidate the browser session that
+	// minted these cookies, so no run makes that call unless it is asked for.
+	checkSession := flag.Bool("check-session", false, "probe /me first to verify the cookies (this logs the browser session out)")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -31,13 +34,13 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(*configPath, *outDir, *pause, flag.Args()); err != nil {
+	if err := run(*configPath, *outDir, *pause, *checkSession, flag.Args()); err != nil {
 		fmt.Fprintf(os.Stderr, "\nfatal: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outDir string, pause time.Duration, urls []string) error {
+func run(configPath, outDir string, pause time.Duration, checkSession bool, urls []string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -73,11 +76,13 @@ func run(configPath, outDir string, pause time.Duration, urls []string) error {
 
 	ctx := context.Background()
 
-	fmt.Println("checking the session is alive…")
-	if err := client.SessionValid(ctx); err != nil {
-		return fmt.Errorf("session check failed — cookies are probably stale: %w", err)
+	if checkSession {
+		fmt.Println("checking the session is alive…")
+		if err := client.SessionValid(ctx); err != nil {
+			return fmt.Errorf("session check failed — cookies are probably stale: %w", err)
+		}
+		fmt.Print("session OK\n\n")
 	}
-	fmt.Print("session OK\n\n")
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create fixture directory: %w", err)
@@ -106,6 +111,10 @@ func run(configPath, outDir string, pause time.Duration, urls []string) error {
 	return nil
 }
 
+// endpointPause spaces out the calls within one profile, for the same reason
+// -pause spaces out the profiles: a machine-regular burst is an easy tell.
+const endpointPause = 1500 * time.Millisecond
+
 // probe calls every endpoint for one profile and records what came back.
 func probe(ctx context.Context, client *voyager.Client, publicID, outDir string, cov *coverage) error {
 	fmt.Printf("=== %s ===\n", publicID)
@@ -115,12 +124,21 @@ func probe(ctx context.Context, client *voyager.Client, publicID, outDir string,
 		return fmt.Errorf("create fixture directory: %w", err)
 	}
 
-	bodies, failures := client.FetchAll(ctx, publicID)
+	// Every endpoint is probed on its own. FetchAll stops at the first essential
+	// failure, which is correct in production but leaves a spike blind to the rest.
+	for i, endpoint := range voyager.ProfileEndpoints {
+		if i > 0 {
+			time.Sleep(endpointPause)
+		}
 
-	for _, endpoint := range voyager.ProfileEndpoints {
-		body, ok := bodies[endpoint.Name]
-		if !ok {
-			fmt.Printf("  %-16s FAILED   %v\n", endpoint.Name, failures[endpoint.Name])
+		var query map[string]string
+		if endpoint.Query != nil {
+			query = endpoint.Query(publicID)
+		}
+
+		body, err := client.Get(ctx, endpoint.Path(publicID), query)
+		if err != nil {
+			fmt.Printf("  %-16s FAILED   %v\n", endpoint.Name, err)
 			cov.recordFailure(endpoint.Name)
 			continue
 		}

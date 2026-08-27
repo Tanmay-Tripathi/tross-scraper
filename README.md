@@ -352,8 +352,18 @@ internally called **Voyager** — and draws the page from that JSON.
 
 So this API skips the page and calls Voyager directly, the same way the browser
 does. **That is the reverse engineering.** Concretely, `GET
-/voyager/api/identity/profiles/{publicId}/profileView` returns most of a profile
-in one response.
+/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={publicId}`
+with the `FullProfileWithEntities` decoration returns a whole profile in one
+response — around 120 KB and 100+ entities.
+
+**Voyager has two generations, and the older one is being switched off.** The
+legacy `/identity/profiles/{publicId}/...` routes — `profileView`, the bare
+profile, `profileContactInfo` and `skills` — now answer **410 Gone**, route by
+route rather than all at once: `recommendations` under the same prefix still
+answers 200. Everything the retired routes carried is available from the dash
+profile above, except contact info, which no reachable endpoint exposes any more.
+`contactInfo` therefore always serialises as `null` and is reported under
+`meta.unavailable`.
 
 **No browser is involved at any point.** That is a requirement of this exercise,
 and it is also the faster answer:
@@ -364,6 +374,12 @@ and it is also the faster answer:
 | Memory | ~30 MB | ~1 GB — will not fit free hosting |
 | Output | already structured JSON | HTML we would have to guess at |
 | Breaks when | LinkedIn changes its API | LinkedIn changes any CSS class |
+
+Everything about the wire format lives in `pkg/linkedin/voyager`, so a change like
+the 410s above moves that package alone. `go run ./cmd/spike <profile-url>` probes
+every endpoint independently and prints which still answer and which entity types
+came back — that report is how the dash migration was scoped, and it is the first
+thing to run when a section goes empty.
 
 ### Authenticating
 

@@ -53,10 +53,13 @@ func NewClient(netOps network.NetworkOpsMethods, creds Credentials, logger log.L
 	}
 
 	// JSESSIONID is sent with quotes, csrf-token without. Getting this pair wrong
-	// is the usual cause of "CSRF check failed".
+	// is the usual cause of "CSRF check failed". Quoted is what puts the quotes on
+	// the wire: a literal '"' inside Value is an invalid cookie byte, so net/http
+	// strips it, logs "dropping invalid bytes", and sends the cookie unquoted —
+	// which is not what a browser sends.
 	cookies := []*http.Cookie{
 		{Name: "li_at", Value: creds.LiAt, Domain: ".linkedin.com", Path: "/"},
-		{Name: "JSESSIONID", Value: `"` + creds.JSessionID + `"`, Domain: ".linkedin.com", Path: "/"},
+		{Name: "JSESSIONID", Value: creds.JSessionID, Quoted: true, Domain: ".linkedin.com", Path: "/"},
 	}
 	if err := netOps.SetCookies(cookieURL, cookies); err != nil {
 		return nil, fmt.Errorf("seed linkedin cookies: %w", err)

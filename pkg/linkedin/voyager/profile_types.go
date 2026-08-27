@@ -1,29 +1,25 @@
 package voyager
 
-// These structs mirror LinkedIn's wire format and are intentionally permissive:
-// every field is optional, and an unrecognised one must never break decoding.
+// These structs mirror LinkedIn's dash wire format and are intentionally
+// permissive: every field is optional, and an unrecognised one must never break
+// decoding.
+//
+// Two conventions matter. A field tagged `*something` holds a urn pointing into
+// the response's included list rather than the value itself — dash normalises
+// almost everything. A field tagged `json:"-"` is filled in by the assembler
+// after it follows those urns, never by the decoder.
 
-// ProfileViewData is the profileView "data" object; each view lists entityUrns.
-type ProfileViewData struct {
-	Profile string `json:"*profile"`
-
-	PositionView            urnList `json:"*positionView"`
-	EducationView           urnList `json:"*educationView"`
-	SkillView               urnList `json:"*skillView"`
-	CertificationView       urnList `json:"*certificationView"`
-	ProjectView             urnList `json:"*projectView"`
-	PublicationView         urnList `json:"*publicationView"`
-	PatentView              urnList `json:"*patentView"`
-	HonorView               urnList `json:"*honorView"`
-	CourseView              urnList `json:"*courseView"`
-	LanguageView            urnList `json:"*languageView"`
-	OrganizationView        urnList `json:"*organizationView"`
-	VolunteerExperienceView urnList `json:"*volunteerExperienceView"`
-	TestScoreView           urnList `json:"*testScoreView"`
+// dashProfileList is the collection the profile query answers with: a single
+// element naming the subject. Reading it beats scanning included, which also
+// carries the profiles of connections, contributors and recommenders.
+type dashProfileList struct {
+	Elements []string `json:"*elements"`
 }
 
-// urnList wraps a view's element list.
-type urnList struct {
+// collectionRef is dash's one level of indirection. A section pointer on the
+// profile resolves to a CollectionResponse, whose elements are the section's
+// entities — the hop legacy profileView did not have.
+type collectionRef struct {
 	Elements []string `json:"*elements"`
 }
 
@@ -37,10 +33,11 @@ type Date struct {
 // IsZero reports whether the date carries nothing usable.
 func (d *Date) IsZero() bool { return d == nil || (d.Year == 0 && d.Month == 0 && d.Day == 0) }
 
-// TimePeriod is a start and an optional end. A nil EndDate means "Present".
-type TimePeriod struct {
-	StartDate *Date `json:"startDate"`
-	EndDate   *Date `json:"endDate"`
+// DateRange is dash's start/end pair, replacing the legacy timePeriod. A nil End
+// means "Present".
+type DateRange struct {
+	Start *Date `json:"start"`
+	End   *Date `json:"end"`
 }
 
 // VectorImage is how LinkedIn delivers photos: a root URL plus sized artifacts.
@@ -80,11 +77,11 @@ type imageReference struct {
 	VectorImage *VectorImage `json:"vectorImage"`
 }
 
-// PictureFrame is the profilePicture / backgroundImage envelope.
+// PictureFrame is the envelope around any image: a member photo nests it under
+// displayImageReference, a company logo puts it directly under vectorImage.
 type PictureFrame struct {
 	DisplayImageReference *imageReference `json:"displayImageReference"`
-	// Older payloads put the vector image directly under the frame.
-	VectorImage *VectorImage `json:"vectorImage"`
+	VectorImage           *VectorImage    `json:"vectorImage"`
 }
 
 // URL resolves whichever nesting this payload used.
@@ -100,33 +97,67 @@ func (p *PictureFrame) URL() string {
 	return p.VectorImage.BestURL()
 }
 
-// Profile is the core member entity.
+// Profile is the core member entity, and the root every section hangs off.
 type Profile struct {
 	EntityUrn        string        `json:"entityUrn"`
 	FirstName        string        `json:"firstName"`
 	LastName         string        `json:"lastName"`
 	Headline         string        `json:"headline"`
 	Summary          string        `json:"summary"`
-	IndustryName     string        `json:"industryName"`
+	PublicIdentifier string        `json:"publicIdentifier"`
 	LocationName     string        `json:"locationName"`
-	GeoLocationName  string        `json:"geoLocationName"`
-	GeoCountryName   string        `json:"geoCountryName"`
-	PublicIdentifier string        `json:"publicIdentifier"`
 	ProfilePicture   *PictureFrame `json:"profilePicture"`
-	BackgroundImage  *PictureFrame `json:"backgroundImage"`
+	BackgroundImage  *PictureFrame `json:"backgroundPicture"`
+	VolunteerCauses  []string      `json:"volunteerCauses"`
+
+	IndustryUrn string `json:"*industry"`
+
+	// GeoLocation carries the displayed location, one urn further out.
+	GeoLocation *struct {
+		GeoUrn string `json:"*geo"`
+	} `json:"geoLocation"`
+
+	// PronounUnion is either a standardised enum or the member's own wording.
+	PronounUnion *struct {
+		Standardized string `json:"standardizedPronoun"`
+		Custom       string `json:"customPronoun"`
+	} `json:"pronounUnion"`
+
+	PositionGroups       string `json:"*profilePositionGroups"`
+	Educations           string `json:"*profileEducations"`
+	Skills               string `json:"*profileSkills"`
+	Certifications       string `json:"*profileCertifications"`
+	Projects             string `json:"*profileProjects"`
+	Publications         string `json:"*profilePublications"`
+	Patents              string `json:"*profilePatents"`
+	Honors               string `json:"*profileHonors"`
+	Courses              string `json:"*profileCourses"`
+	Languages            string `json:"*profileLanguages"`
+	Organizations        string `json:"*profileOrganizations"`
+	VolunteerExperiences string `json:"*profileVolunteerExperiences"`
+	TestScores           string `json:"*profileTestScores"`
 }
 
-// MiniProfile is the compact member entity attached to recommendations.
-type MiniProfile struct {
-	EntityUrn        string        `json:"entityUrn"`
-	FirstName        string        `json:"firstName"`
-	LastName         string        `json:"lastName"`
-	Occupation       string        `json:"occupation"`
-	PublicIdentifier string        `json:"publicIdentifier"`
-	Picture          *PictureFrame `json:"picture"`
+// Geo is a resolved place name. dash gives positions a name inline but the
+// profile's own location only as a urn.
+type Geo struct {
+	EntityUrn string `json:"entityUrn"`
+	Name      string `json:"defaultLocalizedName"`
 }
 
-// Company is the organisation attached to a position or certification.
+// Industry is the profile's industry, reachable only through its urn.
+type Industry struct {
+	EntityUrn string `json:"entityUrn"`
+	Name      string `json:"name"`
+}
+
+// EmploymentType turns a position's urn into "Internship", "Full-time", ….
+type EmploymentType struct {
+	EntityUrn string `json:"entityUrn"`
+	Name      string `json:"name"`
+}
+
+// Company is the organisation behind a position, certification or volunteer role.
 type Company struct {
 	EntityUrn string        `json:"entityUrn"`
 	Name      string        `json:"name"`
@@ -134,36 +165,54 @@ type Company struct {
 	Universal string        `json:"universalName"`
 }
 
-// School is the institution attached to an education entry.
+// School is the institution behind an education entry.
 type School struct {
-	EntityUrn  string        `json:"entityUrn"`
-	SchoolName string        `json:"schoolName"`
-	Logo       *PictureFrame `json:"logo"`
+	EntityUrn string        `json:"entityUrn"`
+	Name      string        `json:"name"`
+	Logo      *PictureFrame `json:"logo"`
 }
 
+// PositionGroup is one company a member worked at; the roles held there hang off
+// it. This grouping is why experience needs three hops, not two.
+type PositionGroup struct {
+	EntityUrn   string     `json:"entityUrn"`
+	CompanyName string     `json:"companyName"`
+	CompanyUrn  string     `json:"*company"`
+	Positions   string     `json:"*profilePositionInPositionGroup"`
+	DateRange   *DateRange `json:"dateRange"`
+
+	Company *Company `json:"-"`
+}
+
+// Position is one role. Only some carry a company urn of their own, so the
+// assembler falls back to the group's company.
 type Position struct {
-	EntityUrn       string      `json:"entityUrn"`
-	Title           string      `json:"title"`
-	CompanyName     string      `json:"companyName"`
-	CompanyUrn      string      `json:"companyUrn"`
-	Description     string      `json:"description"`
-	LocationName    string      `json:"locationName"`
-	GeoLocationName string      `json:"geoLocationName"`
-	EmploymentType  string      `json:"employmentType"`
-	TimePeriod      *TimePeriod `json:"timePeriod"`
-	Company         *Company    `json:"company"`
+	EntityUrn         string     `json:"entityUrn"`
+	Title             string     `json:"title"`
+	CompanyName       string     `json:"companyName"`
+	CompanyUrn        string     `json:"*company"`
+	Description       string     `json:"description"`
+	LocationName      string     `json:"locationName"`
+	GeoLocationName   string     `json:"geoLocationName"`
+	EmploymentTypeUrn string     `json:"*employmentType"`
+	DateRange         *DateRange `json:"dateRange"`
+
+	Company        *Company `json:"-"`
+	EmploymentType string   `json:"-"`
 }
 
 type Education struct {
-	EntityUrn    string      `json:"entityUrn"`
-	SchoolName   string      `json:"schoolName"`
-	DegreeName   string      `json:"degreeName"`
-	FieldOfStudy string      `json:"fieldOfStudy"`
-	Grade        string      `json:"grade"`
-	Activities   string      `json:"activities"`
-	Description  string      `json:"description"`
-	TimePeriod   *TimePeriod `json:"timePeriod"`
-	School       *School     `json:"school"`
+	EntityUrn    string     `json:"entityUrn"`
+	SchoolName   string     `json:"schoolName"`
+	SchoolUrn    string     `json:"*school"`
+	DegreeName   string     `json:"degreeName"`
+	FieldOfStudy string     `json:"fieldOfStudy"`
+	Grade        string     `json:"grade"`
+	Activities   string     `json:"activities"`
+	Description  string     `json:"description"`
+	DateRange    *DateRange `json:"dateRange"`
+
+	School *School `json:"-"`
 }
 
 type Skill struct {
@@ -172,54 +221,49 @@ type Skill struct {
 }
 
 type Certification struct {
-	EntityUrn     string      `json:"entityUrn"`
-	Name          string      `json:"name"`
-	Authority     string      `json:"authority"`
-	LicenseNumber string      `json:"licenseNumber"`
-	URL           string      `json:"url"`
-	TimePeriod    *TimePeriod `json:"timePeriod"`
-	Company       *Company    `json:"company"`
+	EntityUrn     string     `json:"entityUrn"`
+	Name          string     `json:"name"`
+	Authority     string     `json:"authority"`
+	LicenseNumber string     `json:"licenseNumber"`
+	URL           string     `json:"url"`
+	CompanyUrn    string     `json:"*company"`
+	DateRange     *DateRange `json:"dateRange"`
+
+	Company *Company `json:"-"`
+}
+
+// contributor is how dash credits a person on a project or publication: either a
+// urn to their profile, or free text when they are not on LinkedIn.
+type contributor struct {
+	Standardized *struct {
+		ProfileUrn string `json:"*profile"`
+	} `json:"standardizedContributor"`
+	Custom *struct {
+		Name string `json:"name"`
+	} `json:"customContributor"`
 }
 
 type Project struct {
-	EntityUrn   string      `json:"entityUrn"`
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	URL         string      `json:"url"`
-	TimePeriod  *TimePeriod `json:"timePeriod"`
-	Members     []struct {
-		Member *MiniProfile `json:"member"`
-		Name   string       `json:"name"`
-	} `json:"members"`
+	EntityUrn    string        `json:"entityUrn"`
+	Title        string        `json:"title"`
+	Description  string        `json:"description"`
+	URL          string        `json:"url"`
+	DateRange    *DateRange    `json:"dateRange"`
+	Contributors []contributor `json:"contributors"`
+
+	Members []string `json:"-"`
 }
 
 type Publication struct {
-	EntityUrn   string `json:"entityUrn"`
-	Name        string `json:"name"`
-	Publisher   string `json:"publisher"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Date        *Date  `json:"date"`
-	Authors     []struct {
-		Member *MiniProfile `json:"member"`
-		Name   string       `json:"name"`
-	} `json:"authors"`
-}
+	EntityUrn   string        `json:"entityUrn"`
+	Name        string        `json:"name"`
+	Publisher   string        `json:"publisher"`
+	Description string        `json:"description"`
+	URL         string        `json:"url"`
+	PublishedOn *Date         `json:"publishedOn"`
+	Authors     []contributor `json:"authors"`
 
-type Patent struct {
-	EntityUrn   string `json:"entityUrn"`
-	Title       string `json:"title"`
-	Issuer      string `json:"issuer"`
-	Number      string `json:"number"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Pending     bool   `json:"pending"`
-	IssueDate   *Date  `json:"issueDate"`
-	FilingDate  *Date  `json:"filingDate"`
-	Inventors   []struct {
-		Member *MiniProfile `json:"member"`
-		Name   string       `json:"name"`
-	} `json:"inventors"`
+	AuthorNames []string `json:"-"`
 }
 
 type Honor struct {
@@ -227,7 +271,7 @@ type Honor struct {
 	Title       string `json:"title"`
 	Issuer      string `json:"issuer"`
 	Description string `json:"description"`
-	IssueDate   *Date  `json:"issueDate"`
+	IssuedOn    *Date  `json:"issuedOn"`
 }
 
 type Course struct {
@@ -242,21 +286,41 @@ type Language struct {
 	Proficiency string `json:"proficiency"`
 }
 
-type Organization struct {
-	EntityUrn   string      `json:"entityUrn"`
-	Name        string      `json:"name"`
-	Position    string      `json:"position"`
-	Description string      `json:"description"`
-	TimePeriod  *TimePeriod `json:"timePeriod"`
+type VolunteerExperience struct {
+	EntityUrn   string     `json:"entityUrn"`
+	Role        string     `json:"role"`
+	CompanyName string     `json:"companyName"`
+	CompanyUrn  string     `json:"*company"`
+	Cause       string     `json:"cause"`
+	Description string     `json:"description"`
+	DateRange   *DateRange `json:"dateRange"`
+
+	Company *Company `json:"-"`
 }
 
-type VolunteerExperience struct {
-	EntityUrn   string      `json:"entityUrn"`
-	Role        string      `json:"role"`
-	CompanyName string      `json:"companyName"`
-	Cause       string      `json:"cause"`
-	Description string      `json:"description"`
-	TimePeriod  *TimePeriod `json:"timePeriod"`
+// Patents, organizations and test scores were empty on every profile probed so
+// far, so these three follow dash's naming convention but are the only structs
+// here not confirmed against a real payload. The collection pointers do exist on
+// the profile, which is why the sections stay wired up rather than dropped.
+
+type Patent struct {
+	EntityUrn   string `json:"entityUrn"`
+	Title       string `json:"title"`
+	Issuer      string `json:"issuer"`
+	Number      string `json:"applicationNumber"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Pending     bool   `json:"pending"`
+	IssuedOn    *Date  `json:"issuedOn"`
+	FiledOn     *Date  `json:"filedOn"`
+}
+
+type Organization struct {
+	EntityUrn   string     `json:"entityUrn"`
+	Name        string     `json:"name"`
+	Position    string     `json:"position"`
+	Description string     `json:"description"`
+	DateRange   *DateRange `json:"dateRange"`
 }
 
 type TestScore struct {
@@ -264,38 +328,24 @@ type TestScore struct {
 	Name        string `json:"name"`
 	Score       string `json:"score"`
 	Description string `json:"description"`
-	Date        *Date  `json:"date"`
+	DateOn      *Date  `json:"dateOn"`
+}
+
+// MiniProfile and Recommendation come from the recommendations endpoint, which is
+// still on the legacy fs_ format — hence the different shape from Profile above.
+type MiniProfile struct {
+	EntityUrn        string        `json:"entityUrn"`
+	FirstName        string        `json:"firstName"`
+	LastName         string        `json:"lastName"`
+	Occupation       string        `json:"occupation"`
+	PublicIdentifier string        `json:"publicIdentifier"`
+	Picture          *PictureFrame `json:"picture"`
 }
 
 type Recommendation struct {
 	EntityUrn          string       `json:"entityUrn"`
 	RecommendationText string       `json:"recommendationText"`
 	Relationship       string       `json:"relationship"`
-	Recommender        *MiniProfile `json:"recommender"`
+	Recommender        *MiniProfile `json:"recommenderEntity"`
 	RecommenderUrn     string       `json:"*recommender"`
-}
-
-// ContactInfo is the profileContactInfo response.
-type ContactInfo struct {
-	EmailAddress string `json:"emailAddress"`
-	Address      string `json:"address"`
-	BirthDateOn  *Date  `json:"birthDateOn"`
-	PhoneNumbers []struct {
-		Number string `json:"number"`
-		Type   string `json:"type"`
-	} `json:"phoneNumbers"`
-	Websites []struct {
-		URL  string `json:"url"`
-		Type struct {
-			Standard *struct {
-				Category string `json:"category"`
-			} `json:"com.linkedin.voyager.identity.profile.StandardWebsite"`
-			Custom *struct {
-				Label string `json:"label"`
-			} `json:"com.linkedin.voyager.identity.profile.CustomWebsite"`
-		} `json:"type"`
-	} `json:"websites"`
-	TwitterHandles []struct {
-		Name string `json:"name"`
-	} `json:"twitterHandles"`
 }

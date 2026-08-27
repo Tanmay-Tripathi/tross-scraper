@@ -39,6 +39,7 @@ func NewClientLinkedIn(access *clientAccess) (ClientLinkedInMethods, error) {
 	netOps, err := network.NewNetworkOps("linkedin", access.logger, network.Options{
 		Timeout:         time.Duration(cfg.RequestTimeoutSeconds) * time.Second,
 		EnableCookieJar: true,
+		NoRedirects:     true,
 	})
 	if err != nil {
 		return nil, err
@@ -65,8 +66,11 @@ func (c *ClientLinkedIn) FetchProfile(ctx context.Context, publicID string) (*mo
 	bodies, failures := c.voyager.FetchAll(ctx, publicID)
 
 	// Only the essential call failing stops us; a partial profile is still useful.
-	if _, ok := bodies["profileView"]; !ok {
-		return nil, c.mapFailure(logger.Errorf, publicID, failures["profileView"])
+	// The name comes from the endpoint list rather than a literal, so retiring an
+	// endpoint cannot leave this check pointing at a key nobody writes any more.
+	essential := voyager.EssentialEndpointName()
+	if _, ok := bodies[essential]; !ok {
+		return nil, c.mapFailure(logger.Errorf, publicID, failures[essential])
 	}
 
 	for name, err := range failures {
@@ -94,6 +98,10 @@ func (c *ClientLinkedIn) SessionValid(ctx context.Context) error {
 
 // mapFailure turns an upstream failure into the service's own error code.
 func (c *ClientLinkedIn) mapFailure(logf func(string, ...any), publicID string, err error) *exceptions.ApplicationError {
+	if err == nil {
+		err = errors.New("the essential endpoint returned no body")
+	}
+
 	var status *voyager.StatusError
 	if errors.As(err, &status) {
 		switch {

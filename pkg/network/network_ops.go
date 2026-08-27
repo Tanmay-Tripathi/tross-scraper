@@ -35,6 +35,11 @@ type Options struct {
 	EnableCookieJar bool
 	// MaxResponseBytes caps the body we read so a runaway upstream cannot exhaust memory.
 	MaxResponseBytes int64
+	// NoRedirects returns the 3xx itself instead of following it. For a JSON API a
+	// redirect is an answer — usually "you are not logged in" — and following it
+	// turns one failed call into ten requests against an upstream that just
+	// rejected us.
+	NoRedirects bool
 }
 
 const defaultMaxResponseBytes = 16 << 20
@@ -60,6 +65,11 @@ func NewNetworkOps(name string, logger log.Logger, opts Options) (*NetworkOps, e
 	}
 
 	client := &http.Client{Timeout: timeout}
+	if opts.NoRedirects {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
 	if opts.EnableCookieJar {
 		jar, err := cookiejar.New(nil)
 		if err != nil {

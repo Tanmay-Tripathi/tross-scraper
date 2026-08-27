@@ -98,6 +98,22 @@ func ResolveAll[T any](g *Graph, urns []string) []T {
 	return results
 }
 
+// Collection follows a section pointer to its CollectionResponse and decodes the
+// entities it lists. dash puts exactly one collection between a profile and every
+// section, so this is the hop that replaces legacy's flat "*elements" lists.
+func Collection[T any](g *Graph, pointer string) []T {
+	if pointer == "" {
+		return nil
+	}
+
+	var ref collectionRef
+	if !g.Resolve(pointer, &ref) {
+		return nil
+	}
+
+	return ResolveAll[T](g, ref.Elements)
+}
+
 // ByType returns every entity whose $type ends with typeSuffix, in LinkedIn's
 // order. Suffix matching survives LinkedIn renaming its versioned namespace.
 func ByType[T any](g *Graph, typeSuffix string) []T {

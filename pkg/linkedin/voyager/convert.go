@@ -1,7 +1,6 @@
 package voyager
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/models"
@@ -18,7 +17,7 @@ func mapExperience(raw []Position) []models.Experience {
 			EmploymentType: humanizeEnum(item.EmploymentType),
 			Location:       firstNonEmpty(item.GeoLocationName, item.LocationName),
 			Description:    item.Description,
-			Period:         mapPeriod(item.TimePeriod),
+			Period:         mapPeriod(item.DateRange),
 			Media:          []models.Media{},
 		}
 		if item.Company != nil {
@@ -39,7 +38,7 @@ func mapEducation(raw []Education) []models.Education {
 			Grade:        item.Grade,
 			Activities:   item.Activities,
 			Description:  item.Description,
-			Period:       mapPeriod(item.TimePeriod),
+			Period:       mapPeriod(item.DateRange),
 			Media:        []models.Media{},
 		}
 		if item.School != nil {
@@ -55,7 +54,7 @@ func mapSkills(raw []Skill) []models.Skill {
 	seen := map[string]bool{}
 	for _, item := range raw {
 		name := strings.TrimSpace(item.Name)
-		// The skills endpoint and profileView overlap.
+		// dash can list the same skill under more than one collection.
 		if name == "" || seen[name] {
 			continue
 		}
@@ -73,7 +72,7 @@ func mapCertifications(raw []Certification) []models.Certification {
 			Authority:     firstNonEmpty(item.Authority, companyName(item.Company)),
 			LicenseNumber: item.LicenseNumber,
 			URL:           item.URL,
-			Period:        mapPeriod(item.TimePeriod),
+			Period:        mapPeriod(item.DateRange),
 			Media:         []models.Media{},
 		}
 		if item.Company != nil {
@@ -87,18 +86,12 @@ func mapCertifications(raw []Certification) []models.Certification {
 func mapProjects(raw []Project) []models.Project {
 	out := make([]models.Project, 0, len(raw))
 	for _, item := range raw {
-		members := make([]string, 0, len(item.Members))
-		for _, member := range item.Members {
-			if name := firstNonEmpty(member.Name, miniName(member.Member)); name != "" {
-				members = append(members, name)
-			}
-		}
 		out = append(out, models.Project{
 			Title:       item.Title,
 			Description: item.Description,
 			URL:         item.URL,
-			Period:      mapPeriod(item.TimePeriod),
-			Members:     members,
+			Period:      mapPeriod(item.DateRange),
+			Members:     nonNilNames(item.Members),
 			Media:       []models.Media{},
 		})
 	}
@@ -108,19 +101,13 @@ func mapProjects(raw []Project) []models.Project {
 func mapPublications(raw []Publication) []models.Publication {
 	out := make([]models.Publication, 0, len(raw))
 	for _, item := range raw {
-		authors := make([]string, 0, len(item.Authors))
-		for _, author := range item.Authors {
-			if name := firstNonEmpty(author.Name, miniName(author.Member)); name != "" {
-				authors = append(authors, name)
-			}
-		}
 		out = append(out, models.Publication{
 			Name:        item.Name,
 			Publisher:   item.Publisher,
 			Description: item.Description,
 			URL:         item.URL,
-			Date:        mapDate(item.Date),
-			Authors:     authors,
+			Date:        mapDate(item.PublishedOn),
+			Authors:     nonNilNames(item.AuthorNames),
 			Media:       []models.Media{},
 		})
 	}
@@ -130,16 +117,10 @@ func mapPublications(raw []Publication) []models.Publication {
 func mapPatents(raw []Patent) []models.Patent {
 	out := make([]models.Patent, 0, len(raw))
 	for _, item := range raw {
-		inventors := make([]string, 0, len(item.Inventors))
-		for _, inventor := range item.Inventors {
-			if name := firstNonEmpty(inventor.Name, miniName(inventor.Member)); name != "" {
-				inventors = append(inventors, name)
-			}
-		}
 		// A granted patent has an issue date, a pending one only a filing date.
-		date := item.IssueDate
+		date := item.IssuedOn
 		if date.IsZero() {
-			date = item.FilingDate
+			date = item.FiledOn
 		}
 		out = append(out, models.Patent{
 			Title:       item.Title,
@@ -149,7 +130,7 @@ func mapPatents(raw []Patent) []models.Patent {
 			URL:         item.URL,
 			Pending:     item.Pending,
 			Date:        mapDate(date),
-			Inventors:   inventors,
+			Inventors:   []string{},
 			Media:       []models.Media{},
 		})
 	}
@@ -163,7 +144,7 @@ func mapHonors(raw []Honor) []models.Honor {
 			Title:       item.Title,
 			Issuer:      item.Issuer,
 			Description: item.Description,
-			Date:        mapDate(item.IssueDate),
+			Date:        mapDate(item.IssuedOn),
 			Media:       []models.Media{},
 		})
 	}
@@ -196,7 +177,7 @@ func mapOrganizations(raw []Organization) []models.Organization {
 			Name:        item.Name,
 			Role:        item.Position,
 			Description: item.Description,
-			Period:      mapPeriod(item.TimePeriod),
+			Period:      mapPeriod(item.DateRange),
 		})
 	}
 	return out
@@ -210,7 +191,7 @@ func mapVolunteering(raw []VolunteerExperience) []models.Volunteering {
 			Organization: item.CompanyName,
 			Cause:        humanizeEnum(item.Cause),
 			Description:  item.Description,
-			Period:       mapPeriod(item.TimePeriod),
+			Period:       mapPeriod(item.DateRange),
 			Media:        []models.Media{},
 		})
 	}
@@ -224,7 +205,7 @@ func mapTestScores(raw []TestScore) []models.TestScore {
 			Name:        item.Name,
 			Score:       item.Score,
 			Description: item.Description,
-			Date:        mapDate(item.Date),
+			Date:        mapDate(item.DateOn),
 		})
 	}
 	return out
@@ -239,36 +220,18 @@ func mapDate(date *Date) *models.Date {
 	return &models.Date{Day: date.Day, Month: date.Month, Year: date.Year}
 }
 
-// mapPeriod converts a time period. A start with no end is how LinkedIn encodes
+// mapPeriod converts a date range. A start with no end is how LinkedIn encodes
 // "Present", so it is resolved here rather than guessed at downstream.
-func mapPeriod(period *TimePeriod) models.DateRange {
+func mapPeriod(period *DateRange) models.DateRange {
 	if period == nil {
 		return models.DateRange{}
 	}
-	start := mapDate(period.StartDate)
-	end := mapDate(period.EndDate)
+	start := mapDate(period.Start)
+	end := mapDate(period.End)
 	return models.DateRange{
 		Start:   start,
 		End:     end,
 		Present: start != nil && end == nil,
-	}
-}
-
-func formatDate(date *Date) string {
-	if date.IsZero() {
-		return ""
-	}
-	switch {
-	case date.Day > 0 && date.Month > 0 && date.Year > 0:
-		return fmt.Sprintf("%04d-%02d-%02d", date.Year, date.Month, date.Day)
-	case date.Month > 0 && date.Year > 0:
-		return fmt.Sprintf("%04d-%02d", date.Year, date.Month)
-	case date.Year > 0:
-		return fmt.Sprintf("%04d", date.Year)
-	case date.Month > 0 && date.Day > 0:
-		return fmt.Sprintf("%02d-%02d", date.Month, date.Day)
-	default:
-		return ""
 	}
 }
 
@@ -314,7 +277,15 @@ func schoolName(school *School) string {
 	if school == nil {
 		return ""
 	}
-	return school.SchoolName
+	return school.Name
+}
+
+// nonNilNames keeps a name list serialising as [] rather than null.
+func nonNilNames(names []string) []string {
+	if names == nil {
+		return []string{}
+	}
+	return names
 }
 
 func miniName(profile *MiniProfile) string {

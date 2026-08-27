@@ -19,7 +19,12 @@ func (e *StatusError) Error() string {
 
 // SessionExpired reports whether LinkedIn rejected our credentials. 403 counts: it
 // covers a failed CSRF check, and "refresh the cookies" beats a silent failure.
+// So does any 3xx: Voyager answers a signed-in caller directly and redirects
+// everyone else at the login page, so a redirect is a rejection wearing a hat.
 func (e *StatusError) SessionExpired() bool {
+	if e.StatusCode >= 300 && e.StatusCode < 400 {
+		return true
+	}
 	return e.StatusCode == http.StatusUnauthorized || e.StatusCode == http.StatusForbidden
 }
 

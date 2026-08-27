@@ -251,6 +251,26 @@ External integrations live in `internal/clients`. Today that is `client_linkedin
 thing that moves. Section on/off rules are enforced in exactly one function,
 `pkg/mapper.ToProfileResult`; do not re-implement them elsewhere.
 
+The live source is the **dash** profile (`/identity/dash/profiles?q=memberIdentity`),
+which carries every section in one response. Its shape differs from the retired
+legacy API in two ways that matter when adding a section:
+
+- **Indirection.** A section is reached as profile → `*profileX` pointer →
+  `CollectionResponse` → `*elements` → entities. Use `voyager.Collection[T]` for
+  that hop; experience needs one more, through `PositionGroup`.
+- **Urns, not values.** Company, school, geo, industry and employment type arrive
+  as urns. Resolve them in `assemble.go` and hand the mappers a hydrated struct —
+  the `json:"-"` fields exist for exactly that, so `convert.go` stays pure.
+
+The legacy `/identity/profiles/{id}/...` routes answer 410 Gone, one exception
+aside: `recommendations` still works, and is the only place the older `fs_` shape
+is still parsed. When a section empties out, run `go run ./cmd/spike <url>` —
+it probes each endpoint independently and reports the entity types it saw. Set
+`TROSS_FIXTURE_DIR` to a fixture it wrote and `go test ./pkg/linkedin/voyager/`
+maps it end to end. **The spike never calls `/me` unless you pass
+`-check-session`:** that call has been observed to invalidate the browser session
+the cookies came from.
+
 Configuration rules:
 
 - Everything environment-driven goes through `internal/config` and `config/*.yml`.

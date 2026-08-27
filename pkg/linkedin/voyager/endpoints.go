@@ -6,6 +6,11 @@ import (
 	"net/url"
 )
 
+// dashProfileDecoration asks for the profile with every section collection
+// attached. Without it the response is the bare member record and every section
+// pointer is absent.
+const dashProfileDecoration = "com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-100"
+
 // Endpoint is one Voyager call we make when assembling a profile.
 type Endpoint struct {
 	// Name identifies the call in logs, fixtures and the spike report.
@@ -36,44 +41,13 @@ func (e Endpoint) URL(publicID string) string {
 	return full
 }
 
-// ProfileEndpoints are the calls made for one profile. profileView is the
-// workhorse — what the page itself requests — and the rest fill its gaps.
+// ProfileEndpoints are the calls made for one profile.
+//
+// LinkedIn has retired its legacy identity API route by route: profileView,
+// profiles/{id}, profileContactInfo and profiles/{id}/skills all answer 410 Gone,
+// while recommendations under the same prefix still answers 200. What replaced
+// them is the dash profile below, which carries every section in one response.
 var ProfileEndpoints = []Endpoint{
-	{
-		Name:      "profileView",
-		Path:      func(id string) string { return "/identity/profiles/" + url.PathEscape(id) + "/profileView" },
-		Essential: true,
-		Sections: []string{
-			"identity", "headline", "location", "industry", "about", "images",
-			"experience", "education", "skills", "licensesAndCertifications",
-			"projects", "courses", "publications", "patents", "honorsAndAwards",
-			"testScores", "languages", "organizations", "volunteerExperience",
-		},
-	},
-	{
-		Name:     "profile",
-		Path:     func(id string) string { return "/identity/profiles/" + url.PathEscape(id) },
-		Sections: []string{"identity", "headline", "location", "industry", "images"},
-	},
-	{
-		Name:     "contactInfo",
-		Path:     func(id string) string { return "/identity/profiles/" + url.PathEscape(id) + "/profileContactInfo" },
-		Sections: []string{"contactInfo"},
-	},
-	{
-		Name: "skills",
-		Path: func(id string) string { return "/identity/profiles/" + url.PathEscape(id) + "/skills" },
-		Query: func(string) map[string]string {
-			return map[string]string{"count": "100", "start": "0"}
-		},
-		Sections: []string{"skills"},
-	},
-	{
-		Name:     "recommendations",
-		Path:     func(id string) string { return "/identity/profiles/" + url.PathEscape(id) + "/recommendations" },
-		Query:    func(string) map[string]string { return map[string]string{"q": "received", "count": "50"} },
-		Sections: []string{"recommendations"},
-	},
 	{
 		Name: "dashProfile",
 		Path: func(string) string { return "/identity/dash/profiles" },
@@ -81,11 +55,45 @@ var ProfileEndpoints = []Endpoint{
 			return map[string]string{
 				"q":              "memberIdentity",
 				"memberIdentity": id,
-				"decorationId":   "com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-100",
+				"decorationId":   dashProfileDecoration,
 			}
 		},
-		Sections: []string{"openTo", "featured", "services", "careerBreaks", "causes"},
+		Essential: true,
+		Sections: []string{
+			"identity", "headline", "location", "industry", "about", "images",
+			"experience", "education", "skills", "licensesAndCertifications",
+			"projects", "courses", "publications", "patents", "honorsAndAwards",
+			"testScores", "languages", "organizations", "volunteerExperience",
+			"causes",
+		},
 	},
+	{
+		Name:     "recommendations",
+		Path:     func(id string) string { return "/identity/profiles/" + url.PathEscape(id) + "/recommendations" },
+		Query:    func(string) map[string]string { return map[string]string{"q": "received", "count": "50"} },
+		Sections: []string{"recommendations"},
+	},
+}
+
+// EssentialEndpointName is the endpoint a profile cannot be assembled without.
+// Callers key off this rather than a literal, so swapping the essential endpoint
+// is a one-line change here instead of a silent mismatch somewhere else.
+func EssentialEndpointName() string {
+	for _, endpoint := range ProfileEndpoints {
+		if endpoint.Essential {
+			return endpoint.Name
+		}
+	}
+	return ""
+}
+
+// Fetch calls one endpoint for a public identifier.
+func (c *Client) Fetch(ctx context.Context, endpoint Endpoint, publicID string) ([]byte, error) {
+	var query map[string]string
+	if endpoint.Query != nil {
+		query = endpoint.Query(publicID)
+	}
+	return c.Get(ctx, endpoint.Path(publicID), query)
 }
 
 // FetchAll calls every endpoint and returns the raw bodies keyed by name, plus
@@ -95,12 +103,7 @@ func (c *Client) FetchAll(ctx context.Context, publicID string) (map[string][]by
 	failures := make(map[string]error)
 
 	for _, endpoint := range ProfileEndpoints {
-		var query map[string]string
-		if endpoint.Query != nil {
-			query = endpoint.Query(publicID)
-		}
-
-		body, err := c.Get(ctx, endpoint.Path(publicID), query)
+		body, err := c.Fetch(ctx, endpoint, publicID)
 		if err != nil {
 			failures[endpoint.Name] = err
 			if endpoint.Essential {
