@@ -1,3 +1,4 @@
+// Package global holds environment names, header names and context keys.
 package global
 
 // Environment enumerates the deployment environments the service can run in.

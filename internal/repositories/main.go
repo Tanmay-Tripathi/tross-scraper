@@ -1,3 +1,4 @@
+// Package repositories owns all Postgres and cache access.
 package repositories
 
 import (
@@ -7,7 +8,8 @@ import (
 
 // Repositories aggregates every repository the service exposes.
 type Repositories struct {
-	Health RepositoryHealthMethods
+	Health  RepositoryHealthMethods
+	Profile RepositoryProfileMethods
 }
 
 // NewRepositories wires the persistence layer.
@@ -19,6 +21,7 @@ func NewRepositories(store *db.Store, cache db.CacheStoreMethods, logger log.Log
 	}
 
 	return &Repositories{
-		Health: NewRepositoryHealth(access),
+		Health:  NewRepositoryHealth(access),
+		Profile: NewRepositoryProfile(access),
 	}
 }

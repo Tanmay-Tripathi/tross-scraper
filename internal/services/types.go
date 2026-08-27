@@ -1,6 +1,7 @@
 package services
 
 import (
+	"github.com/Tanmay-Tripathi/tross-scraper/internal/clients"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/config"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/db"
@@ -14,4 +15,5 @@ type ServiceAccess struct {
 	Cache        db.CacheStoreMethods
 	Logger       log.Logger
 	Repositories *repositories.Repositories
+	Clients      *clients.Clients
 }

@@ -14,12 +14,22 @@ docs {
   
   ## Endpoints
   
+  **profile**
+  - `POST /public/v1/profile` — the main endpoint: a LinkedIn URL in,
+    structured JSON out
+  
+  **health**
   - `GET /public/v1/health` — liveness, safe to expose publicly
   - `GET /private/v1/health/live` — liveness, for the orchestrator
-  - `GET /private/v1/health/ready` — readiness; probes Postgres and Redis and
-    returns 503 when a dependency is down
+  - `GET /private/v1/health/ready` — readiness; probes Postgres, Redis and the
+    LinkedIn session, returning 503 when one is down
   
   ## Setup
   
-  Select the `local` environment, or override `host` to point at a deployment.
+  Pick the `local` or `production` environment, then run the folder top to
+  bottom. `scrape-profile-cached` expects `scrape-profile` to have run first.
+  
+  The profile requests need LinkedIn cookies configured on the server; without
+  them the API answers `PRF04`, which is the correct behaviour, not a failure of
+  the collection.
 }

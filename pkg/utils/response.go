@@ -1,6 +1,5 @@
-// Package utils holds cross-cutting helpers. The response helpers here are the
-// only sanctioned way for a controller to write an HTTP response: calling
-// ctx.JSON directly bypasses the shared envelope and the error mapping.
+// Package utils holds cross-cutting helpers. These response helpers are the only
+// sanctioned way to write a response; ctx.JSON bypasses the envelope.
 package utils
 
 import (
@@ -19,20 +18,12 @@ type Pagination struct {
 	TotalPages int   `json:"total_pages"`
 }
 
-// ApiResponseV2 is the response envelope for all new endpoints.
+// ApiResponseV2 is the response envelope every endpoint uses.
 type ApiResponseV2[T any] struct {
 	Code       string      `json:"code"`
 	Message    string      `json:"message"`
 	Result     T           `json:"result,omitempty"`
 	Pagination *Pagination `json:"pagination,omitempty"`
-}
-
-// ApiResponseV1 is the legacy envelope, kept for endpoints whose contract
-// predates V2. New endpoints must use SendApiResponseV2.
-type ApiResponseV1 struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
 }
 
 // errorResponse is the payload returned for any *ApplicationError.
@@ -41,8 +32,7 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-// SendApiResponseV2 writes the standard envelope. When appErr is non-nil the
-// error mapping wins and result/pagination are ignored.
+// SendApiResponseV2 writes the standard envelope; a non-nil appErr wins.
 func SendApiResponseV2[T any](ctx *gin.Context, result T, pagination *Pagination, appErr *exceptions.ApplicationError) {
 	if appErr != nil {
 		sendError(ctx, appErr)
@@ -57,23 +47,7 @@ func SendApiResponseV2[T any](ctx *gin.Context, result T, pagination *Pagination
 	})
 }
 
-// SendApiResponseV1 writes the legacy envelope. Prefer SendApiResponseV2 unless
-// you are deliberately matching an existing contract.
-func SendApiResponseV1(ctx *gin.Context, data any, appErr *exceptions.ApplicationError) {
-	if appErr != nil {
-		sendError(ctx, appErr)
-		return
-	}
-
-	ctx.JSON(http.StatusOK, ApiResponseV1{
-		Code:    string(exceptions.ApiSuccessCode),
-		Message: exceptions.ApiSuccessMessage,
-		Data:    data,
-	})
-}
-
-// sendError normalises a partially-filled ApplicationError before writing it,
-// so a response can never go out with a blank code, message or status.
+// sendError normalises a partial error so no response goes out blank.
 func sendError(ctx *gin.Context, appErr *exceptions.ApplicationError) {
 	if appErr.ErrorCode == "" || appErr.ErrorMessage == "" {
 		appErr = exceptions.New(exceptions.ErrorMessageNotFound)
@@ -90,8 +64,7 @@ func sendError(ctx *gin.Context, appErr *exceptions.ApplicationError) {
 	})
 }
 
-// NewPagination computes the envelope's pagination block from the query that
-// produced the page.
+// NewPagination computes the pagination block for a page.
 func NewPagination(page, pageSize int, totalItems int64) *Pagination {
 	if pageSize <= 0 {
 		pageSize = 1

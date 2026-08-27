@@ -12,23 +12,21 @@ If you are about to add a feature, a new endpoint, or refactor logic here, read 
 
 **tross-scraper** is a LinkedIn Profile API: it accepts a LinkedIn profile URL and returns the profile as structured JSON.
 
-Monorepo layout:
+A single Go 1.24 service, API only — there is no frontend and no browser
+anywhere in the stack. LinkedIn is reached by direct HTTP calls to its private
+JSON API; see §9.
 
-- **Backend** (repo root) — Go 1.24 microservice exposing a JSON/REST API.
-  - HTTP API built with **Gin**.
-  - **PostgreSQL** as the primary database (migrations in `migrations/postgres/`).
-  - **Redis** for caching.
-  - Observability via **OpenTelemetry** traces, **Prometheus** metrics and **zerolog** structured logs.
-  - Module path: `github.com/Tanmay-Tripathi/tross-scraper`.
-- **Frontend** (`frontend/`) — standalone Vite 7 + React 19 + TypeScript SPA, Tailwind CSS 3 + shadcn/ui, linted with Biome, built with npm. It is a thin client over the API, not a library.
+- HTTP API built with **Gin**.
+- **PostgreSQL** as the primary database (migrations in `migrations/postgres/`).
+- **Redis** for caching.
+- Observability via **OpenTelemetry** traces, **Prometheus** metrics and **zerolog** structured logs.
+- Module path: `github.com/Tanmay-Tripathi/tross-scraper`.
 
 There are **no private or internal dependencies**. Everything the service needs is either in `pkg/` or a public module.
 
 ---
 
 ## 2. How to Run and Format the Service
-
-### Backend (repo root)
 
 ```bash
 cp config/local.example.yml config/local.yml   # first run only
@@ -41,19 +39,12 @@ make fmt           # go fmt ./... + go mod tidy
 make vet           # go vet ./...
 make lint          # fmt + vet
 make migrate-new   # create a new Postgres migration pair
-make stack         # docker compose: API + frontend + Postgres + Redis
+
+go run ./cmd/spike <profile-url>...   # probe LinkedIn, save fixtures, report coverage
+make stack         # docker compose: API + Postgres + Redis
 ```
 
-### Frontend (`frontend/`)
-
-```bash
-make fe-install    # npm ci
-make fe-dev        # dev server on http://localhost:4204
-make fe-build      # production build to frontend/dist
-make fe-lint       # biome check --write
-```
-
-**After making changes, always run the linters before considering the work complete:** `make lint` for the backend, `make fe-lint` for the frontend.
+**After making changes, always run `make lint` before considering the work complete.**
 
 ---
 
@@ -71,10 +62,11 @@ make fe-lint       # biome check --write
 | Directory               | Responsibility                                                            |
 |-------------------------|---------------------------------------------------------------------------|
 | `internal/controllers`  | HTTP handlers: parse, validate, map, call a service, write the response.  |
-| `internal/services`     | Business logic and orchestration. Calls repositories.                     |
+| `internal/services`     | Business logic and orchestration. Calls repositories and clients.         |
+| `internal/clients`      | Outbound integrations, behind interfaces. Currently the LinkedIn client.  |
 | `internal/repositories` | All Postgres and cache access.                                            |
 | `internal/models`       | Domain models. The only types services and repositories exchange.         |
-| `internal/requests`     | Inbound request DTOs. Created with the first feature that takes a body.   |
+| `internal/requests`     | Inbound request DTOs.                                                     |
 | `internal/response`     | Outbound response DTOs.                                                   |
 | `internal/exceptions`   | `ApplicationError` and the error-code catalogue.                          |
 | `internal/config`       | Config struct, loading, `${VAR}` expansion, defaults and validation.      |
@@ -87,6 +79,8 @@ Middlewares live in `cmd/app/middlewares/`: `Cors` is applied globally in `newRo
 |--------------------|-------------------------------------------------------------------------|
 | `pkg/db`           | Postgres store (master/slave + migrations) and the Redis cache.         |
 | `pkg/log`          | Context-aware structured logger over zerolog.                           |
+| `pkg/network`      | The shared outbound HTTP caller, with an optional cookie jar.           |
+| `pkg/linkedin/voyager` | LinkedIn's private API: client, URN resolver, payload structs, assembler. |
 | `pkg/telemetry`    | OTel tracing, Prometheus metrics, request/correlation IDs.              |
 | `pkg/mapper`       | DTO ↔ model conversion.                                                 |
 | `pkg/validation`   | Request payload validation and normalisation helpers.                   |
@@ -96,10 +90,10 @@ Middlewares live in `cmd/app/middlewares/`: `Cors` is applied globally in `newRo
 ### Direction of dependencies — always
 
 ```
-route → controller → service → repository → Postgres / Redis
+route → controller → service → repository / client → Postgres / Redis / LinkedIn
 ```
 
-Never call a repository directly from a route or a middleware. Any change that violates this is a bug.
+Never call a repository or a client directly from a route or a middleware. Any change that violates this is a bug.
 
 ---
 
@@ -143,7 +137,7 @@ utils.SendApiResponseV2(ctx, result, pagination, nil)
 
 Emits `{ code, message, result, pagination }` (`utils.ApiResponseV2[T]`). Build `pagination` with `utils.NewPagination(page, pageSize, total)`, or pass `nil`.
 
-`utils.SendApiResponseV1` is the legacy `{ code, message, data }` shape. Use it only when deliberately matching an existing contract.
+`SendApiResponseV2` is the only response writer. Calling `ctx.JSON` directly bypasses the envelope and the error mapping.
 
 ### 5.2 ApplicationError
 
@@ -234,13 +228,19 @@ Migrations live in `migrations/postgres/` and run automatically at startup. Crea
 
 ## 9. External Clients and Configuration
 
-The service currently has no outbound integrations. **The first one — the LinkedIn client — creates the `internal/clients` layer**, following these rules:
+External integrations live in `internal/clients`. Today that is `client_linkedin.go`.
 
-- One file per integration, `internal/clients/client_<name>.go`, behind a `Client<Name>Methods` interface so services depend on an abstraction and tests can fake it.
-- A `Clients` aggregate and a `NewClients` constructor in `internal/clients/main.go`, wired from `cmd/app/app.go` and threaded to services through `ServiceAccess.Clients`.
-- Share one HTTP caller across clients rather than a bare `http.Client` per call site, so timeouts, retries, trace-header propagation and URL-redacting logs stay consistent.
-- A client whose dependency is unreachable is logged and left `nil` — a degraded downstream must not take the API down. Callers check for `nil`.
+- One file per integration, behind a `Client<Name>Methods` interface, so services depend on an abstraction and tests can fake it.
+- Registered on the `Clients` aggregate in `internal/clients/main.go`, wired from `cmd/app/app.go`, reaching services via `ServiceAccess.Clients`.
+- Build outbound HTTP on `pkg/network.NetworkOpsMethods`, not a bare `http.Client`, so timeouts, trace-header propagation and URL-redacting logs stay consistent.
+- A client whose dependency is unreachable is logged and left `nil` — a degraded downstream must not take the API down. **Callers check for `nil`.**
+- Clients return `*exceptions.ApplicationError`, so no layer above reads an upstream HTTP status.
 - Services call clients; controllers and repositories never do.
+
+**LinkedIn specifics.** Everything about LinkedIn's wire format is quarantined in
+`pkg/linkedin/voyager` — if LinkedIn changes its API, that package is the only
+thing that moves. Section on/off rules are enforced in exactly one function,
+`pkg/mapper.ToProfileResult`; do not re-implement them elsewhere.
 
 Configuration rules:
 
@@ -250,7 +250,7 @@ Configuration rules:
 - List fields use `config.StringList`, which accepts both a YAML sequence and a comma-separated scalar — the scalar form is what makes a list settable from one environment variable.
 - When adding a field: add it to the struct, give it a sensible default in `applyDefaults`, validate it in `validate` if it is required, and document it in `config/local.example.yml`.
 - Keep existing keys backwards compatible.
-- `config/local.yml` and `frontend/.env` are gitignored. **Never commit them.**
+- `config/local.yml` is gitignored. **Never commit it.**
 
 ---
 
@@ -260,7 +260,7 @@ Configuration rules:
 2. **Repository** — `internal/repositories/repo_<feature>.go`, registered in `main.go`.
 3. **Service** — `internal/services/service_<feature>.go`, registered in `main.go`.
 4. **DTOs** — `internal/requests/requests_<feature>.go` and `internal/response/response_<feature>.go`. Use `binding:"required"` tags.
-5. **Errors** — `internal/exceptions/errors_<feature>.go`.
+5. **Errors** — `internal/exceptions/errors_<feature>.go`, registered from its `init()`.
 6. **Validation and mapping** — `pkg/validation` and `pkg/mapper`.
 7. **Controller** — `internal/controllers/controller_<feature>.go`, registered in `main.go`.
 8. **Routes** — `cmd/app/routes_<feature>.go`, called from `addRoutes`.

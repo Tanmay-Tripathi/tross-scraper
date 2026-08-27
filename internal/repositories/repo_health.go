@@ -16,7 +16,7 @@ func NewRepositoryHealth(access *RepositoryAccess) RepositoryHealthMethods {
 	return &RepositoryHealth{access: access}
 }
 
-// PingDatabase verifies both the master and slave Postgres handles.
+// PingDatabase verifies both Postgres handles.
 func (r *RepositoryHealth) PingDatabase(ctx context.Context) error {
 	return r.access.Db.Ping(ctx)
 }

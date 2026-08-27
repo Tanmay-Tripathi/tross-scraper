@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// metrics holds the HTTP collectors exposed on /metrics.
+// metrics holds the collectors exposed on /metrics.
 type metrics struct {
 	requests *prometheus.CounterVec
 	duration *prometheus.HistogramVec
@@ -41,9 +41,8 @@ func newMetrics(serviceName string) *metrics {
 	}
 }
 
-// middleware records a counter, a latency histogram and an in-flight gauge for
-// every request. Routes are labelled by their matched template (not the raw
-// path) so that path parameters cannot explode metric cardinality.
+// middleware records count, latency and in-flight per request. Routes use the
+// matched template, so path params cannot explode cardinality.
 func (m *metrics) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

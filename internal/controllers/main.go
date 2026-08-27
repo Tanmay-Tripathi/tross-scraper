@@ -1,3 +1,4 @@
+// Package controllers holds the HTTP handlers: bind, validate, map, respond.
 package controllers
 
 import (
@@ -8,7 +9,8 @@ import (
 
 // Controllers aggregates every HTTP controller the router can bind.
 type Controllers struct {
-	Health ControllerHealthMethods
+	Health  ControllerHealthMethods
+	Profile ControllerProfileMethods
 }
 
 // NewControllers wires the transport layer.
@@ -20,6 +22,7 @@ func NewControllers(cfg *config.Config, logger log.Logger, services *services.Se
 	}
 
 	return &Controllers{
-		Health: NewControllerHealth(access),
+		Health:  NewControllerHealth(access),
+		Profile: NewControllerProfile(access),
 	}
 }

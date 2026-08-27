@@ -1,0 +1,38 @@
+meta {
+  name: scrape-profile-invalid-url
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{host}}/public/v1/profile
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "profileUrl": "https://www.linkedin.com/company/acme/"
+  }
+}
+
+tests {
+  test("Status code is 400", function() {
+    expect(res.status).to.equal(400);
+  });
+
+  test("Returns the PRF01 error code", function() {
+    expect(res.body.code).to.equal("PRF01");
+    expect(res.body.message).to.be.a("string");
+  });
+}
+
+docs {
+  # Invalid profile URL
+
+  A company page is a valid LinkedIn URL but not a member, so it is rejected
+  with `PRF01` rather than being sent upstream.
+
+  The same code covers job posts, school pages, feed links, and lookalike hosts
+  such as `linkedin.com.evil.net`.
+}

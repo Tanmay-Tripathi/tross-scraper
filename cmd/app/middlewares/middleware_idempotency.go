@@ -19,9 +19,8 @@ const replayTTL = 6 * time.Hour
 // MiddlewareIdempotencyMethods guards handlers that must not run twice for the
 // same client-supplied key.
 type MiddlewareIdempotencyMethods interface {
-	// WithIdempotency replays the stored response for a repeated
-	// x-idempotency-key instead of invoking the handler again. keyPrefix
-	// namespaces the cache entries so two routes cannot collide on one key.
+	// WithIdempotency replays the stored response for a repeated key instead of
+	// running the handler. keyPrefix namespaces entries so routes cannot collide.
 	WithIdempotency(keyPrefix string) gin.HandlerFunc
 }
 
@@ -39,8 +38,7 @@ type cachedResponse struct {
 	Body   json.RawMessage `json:"body"`
 }
 
-// responseRecorder tees the handler's response into a buffer so it can be
-// cached once the status code is known.
+// responseRecorder tees the response so it can be cached once the status is known.
 type responseRecorder struct {
 	gin.ResponseWriter
 	body *bytes.Buffer
@@ -65,8 +63,7 @@ func (m *MiddlewareIdempotency) WithIdempotency(keyPrefix string) gin.HandlerFun
 
 		cacheKey := fmt.Sprintf("idmp:%s:%s", keyPrefix, idempotencyKey)
 
-		// A cache outage must not take the endpoint down: fall through to the
-		// handler and accept that this one call is not deduplicated.
+		// A cache outage must not take the endpoint down.
 		var stored cachedResponse
 		found, err := m.Access.Cache.GetJSON(ctx, cacheKey, &stored)
 		if err != nil {
@@ -85,8 +82,7 @@ func (m *MiddlewareIdempotency) WithIdempotency(keyPrefix string) gin.HandlerFun
 
 		c.Next()
 
-		// Only successful responses are replayable; a failure should be
-		// retryable with the same key.
+		// Only successes are replayable; a failure stays retryable with the same key.
 		status := c.Writer.Status()
 		if status < 200 || status >= 300 {
 			return

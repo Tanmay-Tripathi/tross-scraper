@@ -1,6 +1,5 @@
-// Package mapper converts between transport DTOs (internal/requests,
-// internal/response) and domain models (internal/models). Controllers own the
-// conversion; services only ever see models.
+// Package mapper converts between transport DTOs and domain models. Controllers
+// own the conversion; services only see models.
 package mapper
 
 import (
@@ -13,8 +12,7 @@ const (
 	statusUnhealthy = "unhealthy"
 )
 
-// ToHealthResponse converts the aggregate health model into its API shape,
-// dropping the operator-only error details on each component.
+// ToHealthResponse converts health into its API shape, dropping operator-only detail.
 func ToHealthResponse(status models.HealthStatus) response.HealthResponse {
 	overall := statusHealthy
 	if !status.IsHealthy() {
@@ -29,6 +27,7 @@ func ToHealthResponse(status models.HealthStatus) response.HealthResponse {
 		Dependencies: map[string]response.ComponentResponse{
 			"database": {Status: string(status.Database.State)},
 			"cache":    {Status: string(status.Cache.State)},
+			"linkedin": {Status: string(status.LinkedIn.State)},
 		},
 	}
 }

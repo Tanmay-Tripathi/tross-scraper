@@ -8,9 +8,8 @@ import (
 
 // ServiceHealthMethods reports the service's own readiness.
 type ServiceHealthMethods interface {
-	// Check probes every dependency and returns the aggregate status. A
-	// degraded dependency is reported in the status, not as an error — the
-	// controller decides what HTTP code that deserves.
+	// Check probes every dependency. A degraded one is reported in the status,
+	// not as an error; the controller decides the HTTP code.
 	Check(ctx context.Context) models.HealthStatus
 }
 
@@ -32,6 +31,7 @@ func (s *ServiceHealth) Check(ctx context.Context) models.HealthStatus {
 		Environment: s.Access.Cfg.Environment,
 		Database:    models.Up(),
 		Cache:       models.Up(),
+		LinkedIn:    models.Disabled(),
 	}
 
 	if err := repo.PingDatabase(ctx); err != nil {
@@ -42,6 +42,15 @@ func (s *ServiceHealth) Check(ctx context.Context) models.HealthStatus {
 	if err := repo.PingCache(ctx); err != nil {
 		logger.Errorf("health check: cache unreachable: %v", err)
 		status.Cache = models.Down(err)
+	}
+
+	// Running without credentials is deliberate, not a failure.
+	if client := s.Access.Clients.LinkedIn; client != nil {
+		status.LinkedIn = models.Up()
+		if err := client.SessionValid(ctx); err != nil {
+			logger.Errorf("health check: linkedin session invalid: %v", err)
+			status.LinkedIn = models.Down(err)
+		}
 	}
 
 	return status

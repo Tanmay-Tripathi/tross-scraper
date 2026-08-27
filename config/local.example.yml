@@ -30,7 +30,45 @@ Database:
   max_idle_connections: 2
   skip_migrations: false
 
-# Browser origins allowed to call this API. Empty disables CORS.
+# Browser origins allowed to call this API. Empty disables CORS, which is the
+# right default for a curl/server-to-server API.
 Cors:
-  allowed_origins:
-    - "http://localhost:4204"
+  allowed_origins: []
+
+# LinkedIn session. Both values come from a browser you are logged into.
+# See README for how to copy them. Use a throwaway account, not a personal one,
+# and set that account to Private profile-viewing mode.
+LinkedIn:
+  li_at: ""
+  # Paste WITHOUT the surrounding double quotes that DevTools shows.
+  jsessionid: ""
+  request_timeout_seconds: 20
+  cache_ttl_minutes: 360
+  # Hard ceiling on live scrapes per day. This is what protects the account
+  # when a public endpoint gets hammered. 0 means unlimited — never deploy that.
+  daily_scrape_budget: 200
+
+# Which profile sections the API returns by default. A request may override
+# any of these. Unknown names fail at startup rather than being ignored.
+Sections:
+  about: true
+  contactInfo: true
+  openTo: true
+  experience: true
+  education: true
+  skills: true
+  featured: true
+  projects: true
+  licensesAndCertifications: true
+  courses: true
+  recommendations: true
+  volunteerExperience: true
+  publications: true
+  patents: true
+  honorsAndAwards: true
+  testScores: true
+  languages: true
+  organizations: true
+  services: true
+  careerBreaks: true
+  causes: true

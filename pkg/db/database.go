@@ -1,5 +1,4 @@
-// Package db owns the service's persistence connections: the Postgres store
-// (master/slave GORM handles plus migrations) and the Redis cache.
+// Package db owns the persistence connections: the Postgres store and Redis cache.
 package db
 
 import (
@@ -28,7 +27,7 @@ const (
 	migrationsSourceURL         = "file://" + migrationsDir
 )
 
-// DBConfig tunes a single connection pool. Zero values fall back to defaults.
+// DBConfig tunes one connection pool; zero values use defaults.
 type DBConfig struct {
 	MaxOpenConns         int `yaml:"max_open_connections"`
 	MaxIdleConns         int `yaml:"max_idle_connections"`
@@ -43,8 +42,7 @@ type StoreConfig struct {
 	MasterConfig DBConfig
 	SlaveConfig  DBConfig
 	AppName      string
-	// SkipMigrations disables the automatic migration run on startup. Useful
-	// for tests and for read-only replicas of the service.
+	// SkipMigrations disables the startup migration run.
 	SkipMigrations bool
 }
 
@@ -145,9 +143,8 @@ func currentDatabaseName(gormDB *gorm.DB) (string, error) {
 	return name, nil
 }
 
-// RunMigrations applies every pending migration in migrations/postgres. An
-// empty migrations directory is not an error — a fresh service has no schema
-// yet, and golang-migrate would otherwise refuse to open the source.
+// RunMigrations applies pending migrations. An empty directory is not an error,
+// though golang-migrate would treat it as one.
 func (s *Store) RunMigrations() error {
 	pending, err := filepath.Glob(filepath.Join(migrationsDir, "*.up.sql"))
 	if err != nil {
@@ -223,7 +220,7 @@ func (s *Store) Commit(tx *gorm.DB) error {
 	return tx.Commit().Error
 }
 
-// Ping verifies that both the master and slave handles are reachable.
+// Ping verifies both handles are reachable.
 func (s *Store) Ping(ctx context.Context) error {
 	var errs []error
 	for role, handle := range map[string]*gorm.DB{"master": s.MasterDB, "slave": s.SlaveDB} {
@@ -258,8 +255,8 @@ func (s *Store) Close() error {
 	return errors.Join(errs...)
 }
 
-// applyTimeoutConfig makes sure a Postgres DSN caps idle-in-transaction time so
-// a stuck handler cannot hold a connection open indefinitely.
+// applyTimeoutConfig caps idle-in-transaction time so a stuck handler cannot
+// hold a connection open indefinitely.
 func applyTimeoutConfig(dsn string) string {
 	if dsn == "" || strings.Contains(dsn, idleTransactionTimeoutParam) {
 		return dsn

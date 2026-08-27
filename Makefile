@@ -65,7 +65,7 @@ down: ## stop the local development stack
 	docker compose down
 
 .PHONY: stack
-stack: ## build and run the full stack (API, frontend, Postgres, Redis)
+stack: ## build and run the full stack (API, Postgres, Redis)
 	docker compose up --build
 
 .PHONY: migrate-new
@@ -76,18 +76,3 @@ migrate-new: ## create a new Postgres migration pair
 	touch "migrations/postgres/$${filename}.up.sql" "migrations/postgres/$${filename}.down.sql"; \
 	echo "Created migrations/postgres/$${filename}.{up,down}.sql"
 
-.PHONY: fe-install
-fe-install: ## install frontend dependencies
-	cd frontend && npm ci
-
-.PHONY: fe-dev
-fe-dev: ## run the frontend dev server
-	cd frontend && npm run dev
-
-.PHONY: fe-build
-fe-build: ## build the frontend
-	cd frontend && npm run build
-
-.PHONY: fe-lint
-fe-lint: ## lint and format the frontend
-	cd frontend && npm run lint

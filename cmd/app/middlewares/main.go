@@ -1,6 +1,5 @@
-// Package middlewares holds the HTTP middleware chain. Middlewares may read
-// config, cache and repositories, but must never contain business logic — that
-// belongs in a service.
+// Package middlewares holds the HTTP middleware chain. They may read config,
+// cache and repositories, but never hold business logic.
 package middlewares
 
 import (

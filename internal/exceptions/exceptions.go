@@ -1,7 +1,5 @@
-// Package exceptions defines ApplicationError, the single error type that
-// crosses layer boundaries in this service. Validators, services and
-// repositories return *ApplicationError; controllers hand it to
-// utils.SendApiResponseV2, which turns it into the HTTP error envelope.
+// Package exceptions defines ApplicationError, the only error type that crosses
+// layer boundaries. Controllers hand it to utils.SendApiResponseV2.
 package exceptions
 
 import (
@@ -9,8 +7,7 @@ import (
 	"net/http"
 )
 
-// ErrorCode is a short, stable identifier for a failure mode. Clients switch
-// on it, so codes must never be renamed once released.
+// ErrorCode identifies a failure mode. Clients switch on it, so never rename one.
 type ErrorCode string
 
 // SuccessCode is the code returned on the success envelope.
@@ -50,8 +47,7 @@ const (
 	ServiceUnavailable   ErrorCode = "SU01"
 )
 
-// errorCatalogue maps every known code to its user-facing message and status.
-// Feature files register their codes into it from an init function.
+// errorCatalogue maps codes to messages and statuses; feature files register into it.
 var errorCatalogue = map[ErrorCode]ApplicationError{
 	ErrorMessageNotFound: {
 		ErrorCode:    ErrorMessageNotFound,
@@ -95,8 +91,7 @@ var errorCatalogue = map[ErrorCode]ApplicationError{
 	},
 }
 
-// register adds a feature's codes to the catalogue. It panics on a duplicate
-// code so collisions surface at startup rather than in production responses.
+// register adds a feature's codes, panicking on a duplicate so collisions surface at startup.
 func register(errors map[ErrorCode]ApplicationError) {
 	for code, appErr := range errors {
 		if _, exists := errorCatalogue[code]; exists {
@@ -106,8 +101,7 @@ func register(errors map[ErrorCode]ApplicationError) {
 	}
 }
 
-// New returns the catalogued error for code. An unknown code falls back to
-// ErrorMessageNotFound so a response is always well-formed.
+// New returns the catalogued error, falling back so a response is always well-formed.
 func New(code ErrorCode) *ApplicationError {
 	appErr, ok := errorCatalogue[code]
 	if !ok {
@@ -117,12 +111,8 @@ func New(code ErrorCode) *ApplicationError {
 	return &appErr
 }
 
-// Wrap returns the catalogued error for code after logging the internal detail
-// through logf. Use it at the layer that detects the failure so the operator
-// sees the cause while the client only sees the catalogued message.
-//
-//	return nil, exceptions.Wrap(logger.Errorf, exceptions.SomethingWentWrong,
-//	    "fetch profile %s", profileID, err)
+// Wrap logs the internal detail through logf and returns the catalogued error, so
+// the operator sees the cause and the client only the safe message.
 func Wrap(logf func(string, ...any), code ErrorCode, format string, args ...any) *ApplicationError {
 	if logf != nil {
 		logf("["+string(code)+"] "+format, args...)

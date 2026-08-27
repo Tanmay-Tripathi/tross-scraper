@@ -2,10 +2,8 @@ package app
 
 import "github.com/gin-gonic/gin"
 
-// addHealthRoutes exposes liveness and readiness probes.
-//
-// The public probe is what an uptime check or load balancer hits; the private
-// ones are for the container orchestrator and are not routed from the internet.
+// addHealthRoutes exposes liveness and readiness probes. The public one is for
+// uptime checks; the private ones are for the orchestrator.
 func (app *App) addHealthRoutes(router *gin.Engine) {
 	controller := app.controllers.Health
 
