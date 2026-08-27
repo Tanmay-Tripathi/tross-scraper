@@ -10,11 +10,10 @@ import (
 
 // ControllerHealthMethods exposes the liveness and readiness handlers.
 type ControllerHealthMethods interface {
-	// Live answers as long as the process is running. Container orchestrators
-	// use it to decide whether to restart the pod.
+	// Live answers as long as the process is running.
 	Live(ctx *gin.Context)
-	// Ready probes the downstream dependencies and fails the request when any
-	// of them is unreachable, so a broken instance is pulled out of rotation.
+	// Ready probes the dependencies and fails when one is unreachable, so a
+	// broken instance leaves rotation.
 	Ready(ctx *gin.Context)
 }
 

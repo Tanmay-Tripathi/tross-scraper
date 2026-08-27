@@ -1,0 +1,62 @@
+meta {
+  name: scrape-profile-sections-override
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{host}}/public/v1/profile
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "profileUrl": "{{sampleProfileUrl}}",
+    "sections": {
+      "patents": false,
+      "testScores": false,
+      "experience": true
+    }
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+
+  test("A disabled section is absent from the response entirely", function() {
+    expect(res.body.result).to.not.have.property("patents");
+    expect(res.body.result).to.not.have.property("testScores");
+  });
+
+  test("An enabled section is still present", function() {
+    expect(res.body.result).to.have.property("experience");
+  });
+
+  test("An enabled-but-empty section is [], not missing and not null", function() {
+    for (const section of res.body.result.meta.sectionsUnavailable) {
+      const value = res.body.result[section];
+      if (value !== undefined) {
+        expect(value).to.be.an("array");
+        expect(value.length).to.equal(0);
+      }
+    }
+  });
+}
+
+docs {
+  # Section override
+
+  This request is the config contract demonstrated rather than described.
+
+  Sending `"patents": false` removes the `patents` key from the response
+  **entirely** — it does not come back as an empty array. That distinction is
+  the whole point:
+
+  - `"patents": []`  -> the section was requested and the profile has none
+  - key absent       -> the section was switched off
+
+  A caller can therefore always tell "no data" from "not asked for".
+}

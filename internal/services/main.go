@@ -1,6 +1,8 @@
+// Package services holds the business logic, one file per use case.
 package services
 
 import (
+	"github.com/Tanmay-Tripathi/tross-scraper/internal/clients"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/config"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/db"
@@ -9,7 +11,8 @@ import (
 
 // Services aggregates every use-case service the controllers can call.
 type Services struct {
-	Health ServiceHealthMethods
+	Health  ServiceHealthMethods
+	Profile ServiceProfileMethods
 }
 
 // NewServices wires the business-logic layer.
@@ -19,6 +22,7 @@ func NewServices(
 	repos *repositories.Repositories,
 	cache db.CacheStoreMethods,
 	logger log.Logger,
+	externalClients *clients.Clients,
 ) *Services {
 	access := &ServiceAccess{
 		Cfg:          cfg,
@@ -26,9 +30,11 @@ func NewServices(
 		Cache:        cache,
 		Logger:       logger,
 		Repositories: repos,
+		Clients:      externalClients,
 	}
 
 	return &Services{
-		Health: NewServiceHealth(access),
+		Health:  NewServiceHealth(access),
+		Profile: NewServiceProfile(access),
 	}
 }

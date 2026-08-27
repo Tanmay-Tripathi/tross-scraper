@@ -16,8 +16,12 @@ func NewRepositoryHealth(access *RepositoryAccess) RepositoryHealthMethods {
 	return &RepositoryHealth{access: access}
 }
 
-// PingDatabase verifies both the master and slave Postgres handles.
+// PingDatabase verifies both Postgres handles, or reports
+// ErrDatabaseNotConfigured when the service runs without one.
 func (r *RepositoryHealth) PingDatabase(ctx context.Context) error {
+	if r.access.Db == nil {
+		return ErrDatabaseNotConfigured
+	}
 	return r.access.Db.Ping(ctx)
 }
 

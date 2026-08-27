@@ -17,15 +17,19 @@ tests {
 
   test("All dependencies are up", function() {
     expect(res.body.result.status).to.equal("healthy");
-    expect(res.body.result.dependencies.database.status).to.equal("up");
     expect(res.body.result.dependencies.cache.status).to.equal("up");
+    // No relational state is kept, so the database reports disabled, not down.
+    expect(res.body.result.dependencies.database.status).to.equal("disabled");
   });
 }
 
 docs {
   # Private readiness check
 
-  Probes Postgres and Redis. Returns 503 with code `HLT01` when a dependency is
-  unreachable, so an orchestrator pulls the instance out of rotation instead of
-  routing traffic to it.
+  Probes Redis and the LinkedIn session. Returns 503 with code `HLT01` when a
+  dependency is unreachable, so an orchestrator pulls the instance out of
+  rotation instead of routing traffic to it.
+
+  `database` reports `disabled` — the service keeps no relational state, and
+  absent-by-design is not a fault.
 }

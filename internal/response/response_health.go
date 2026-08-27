@@ -1,10 +1,8 @@
-// Package response holds the outbound DTOs controllers send to clients. Keeping
-// them separate from internal/models means a schema change never silently
-// leaks a new database column into the API.
+// Package response holds the outbound DTOs. Keeping them separate from the models
+// stops a schema change leaking a new column into the API.
 package response
 
-// ComponentResponse reports one dependency's state. The underlying error is
-// deliberately omitted so internal detail never reaches a client.
+// ComponentResponse reports a dependency's state; the error is omitted deliberately.
 type ComponentResponse struct {
 	Status string `json:"status"`
 }

@@ -37,9 +37,8 @@ var allowedMethods = strings.Join([]string{
 
 // MiddlewareCorsMethods guards cross-origin browser access.
 type MiddlewareCorsMethods interface {
-	// Handler answers preflight requests and adds the CORS headers. It is a
-	// no-op when no origins are configured, which is the correct default for a
-	// service with no browser client.
+	// Handler answers preflights and adds CORS headers; a no-op when no origins
+	// are configured.
 	Handler() gin.HandlerFunc
 }
 
@@ -65,8 +64,7 @@ func (m *MiddlewareCors) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 
-		// A request without an Origin header is not a cross-origin browser
-		// request, so it needs no CORS headers at all.
+		// No Origin means it is not a cross-origin browser request.
 		if origin == "" {
 			c.Next()
 			return
@@ -82,8 +80,7 @@ func (m *MiddlewareCors) Handler() gin.HandlerFunc {
 			return
 		}
 
-		// Echo the caller's origin rather than "*" so credentialed requests
-		// work — a browser rejects "*" when credentials are included.
+		// Echo the origin rather than "*"; browsers reject "*" with credentials.
 		c.Header("Access-Control-Allow-Origin", origin)
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Expose-Headers", global.XRequestID.String())

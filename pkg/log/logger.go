@@ -1,6 +1,5 @@
-// Package log provides the context-aware, structured logger used across the
-// service. It wraps zerolog and automatically decorates every entry with the
-// request and correlation IDs carried on the context.
+// Package log provides the context-aware structured logger. It wraps zerolog and
+// decorates every entry with the trace IDs on the context.
 package log
 
 import (
@@ -20,8 +19,7 @@ import (
 
 // Logger is a logger that supports log levels, context and structured logging.
 type Logger interface {
-	// With returns a logger derived from the receiver, decorated with the
-	// trace identifiers on ctx plus any additional key/value argument pairs.
+	// With derives a logger decorated with ctx's trace IDs plus key/value pairs.
 	With(ctx context.Context, args ...any) Logger
 
 	// Debug uses fmt.Sprint to construct and log a message at DEBUG level.
@@ -42,8 +40,7 @@ type Logger interface {
 	// Errorf uses fmt.Sprintf to construct and log a message at ERROR level.
 	Errorf(format string, args ...any)
 
-	// WithRequest returns a context that knows the request and correlation IDs
-	// carried by req, generating a request ID when the caller did not send one.
+	// WithRequest returns a context carrying req's trace IDs, generating any that are absent.
 	WithRequest(ctx context.Context, req *http.Request) context.Context
 }
 
@@ -52,8 +49,7 @@ type LogConfig struct {
 	ServiceName string
 	AppEnv      string
 	AppVersion  string
-	// Level is an optional zerolog level name ("debug", "info", "warn",
-	// "error"). It defaults to "info" when empty or unrecognised.
+	// Level is a zerolog level name; defaults to "info".
 	Level string
 }
 
@@ -61,8 +57,7 @@ type logger struct {
 	log zerolog.Logger
 }
 
-// New creates the root logger. Local runs get human-readable console output;
-// every other environment gets structured JSON on stdout.
+// New creates the root logger: console output locally, JSON everywhere else.
 func New(cfg LogConfig) Logger {
 	zerolog.TimeFieldFormat = time.RFC3339
 

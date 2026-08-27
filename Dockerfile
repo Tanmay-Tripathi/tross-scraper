@@ -25,8 +25,6 @@ RUN apk add --no-cache ca-certificates tzdata && \
 WORKDIR /app
 
 COPY --from=builder /out/server /app/server
-# Migrations are read from disk at startup, relative to the working directory.
-COPY migrations ./migrations
 COPY config ./config
 
 USER app

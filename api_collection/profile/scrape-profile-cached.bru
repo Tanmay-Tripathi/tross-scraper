@@ -1,0 +1,40 @@
+meta {
+  name: scrape-profile-cached
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{host}}/public/v1/profile
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "profileUrl": "{{sampleProfileUrl}}"
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+
+  test("The second call for the same profile is served from cache", function() {
+    expect(res.body.result.meta.cached).to.equal(true);
+  });
+}
+
+docs {
+  # Cached read
+
+  Run `scrape-profile` first, then this one.
+
+  The second call is served from Redis, so it costs no LinkedIn request. That is
+  what protects the account: a public endpoint receiving repeated traffic for
+  the same profile makes exactly one upstream call per cache window.
+
+  Send `"refresh": true` to bypass the cache. A refresh still counts against the
+  daily scrape budget, so it cannot be used to sidestep the limit.
+}

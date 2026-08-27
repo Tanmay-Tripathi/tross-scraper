@@ -1,19 +1,9 @@
-# Render Blueprint — provisions the API, its Postgres and Redis, and the
-# frontend as a static site, all over HTTPS.
+# Render Blueprint — provisions the API and its Redis, over HTTPS. There is no
+# database: the service keeps no relational state, only a cache.
 #
 # Deploy: push this repo to GitHub, then in the Render dashboard choose
-# New → Blueprint and point it at the repository.
-#
-# After the first deploy, cross-reference the two service URLs:
-#   - set the frontend's VITE_API_HOST to the API's URL, then rebuild (Vite
-#     inlines that value at build time, so a restart is not enough), and
-#   - set the API's CORS_ALLOWED_ORIGINS to the frontend's URL.
-
-databases:
-  - name: tross-scraper-db
-    databaseName: tross_scraper
-    user: tross
-    plan: free
+# New → Blueprint and point it at the repository. The only manual step is
+# supplying the two LinkedIn cookies, which are marked sync:false below.
 
 services:
   - type: keyvalue
@@ -35,10 +25,6 @@ services:
         value: prd
       - key: LOG_LEVEL
         value: info
-      - key: DATABASE_URL
-        fromDatabase:
-          name: tross-scraper-db
-          property: connectionString
       - key: REDIS_HOST
         fromService:
           name: tross-scraper-cache
@@ -53,27 +39,14 @@ services:
       # network, so TLS stays off here.
       - key: REDIS_TLS_ENABLED
         value: "false"
-      # Browser origins allowed to call this API. Update this to the frontend
-      # service's real URL after the first deploy.
-      - key: CORS_ALLOWED_ORIGINS
-        value: https://tross-scraper-frontend.onrender.com
-
-  - type: web
-    name: tross-scraper-frontend
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    staticPublishPath: ./dist
-    envVars:
-      - key: VITE_APP_NAME
-        value: Tross Scraper
-      - key: VITE_API_HOST
-        # Replace with the API service's URL after the first deploy.
-        value: https://tross-scraper-api.onrender.com
-      - key: VITE_LOG_ERRORS
-        value: "false"
-    routes:
-      # SPA fallback so client-side routes resolve.
-      - type: rewrite
-        source: /*
-        destination: /index.html
+      # The LinkedIn session cookies. sync:false keeps them out of the repo —
+      # Render prompts for them on first deploy and stores them encrypted.
+      # See the README for how to copy them from a browser.
+      - key: LINKEDIN_LI_AT
+        sync: false
+      - key: LINKEDIN_JSESSIONID
+        sync: false
+      - key: LINKEDIN_DAILY_BUDGET
+        value: "200"
+      - key: LINKEDIN_CACHE_TTL_MINUTES
+        value: "360"

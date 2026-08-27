@@ -1,0 +1,64 @@
+meta {
+  name: scrape-profile
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{host}}/public/v1/profile
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "profileUrl": "{{sampleProfileUrl}}"
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+
+  test("Returns the success envelope", function() {
+    expect(res.body.code).to.equal("00000");
+    expect(res.body.result).to.be.an("object");
+  });
+
+  test("Profile carries an identity", function() {
+    expect(res.body.result.profile.identity.name).to.be.a("string");
+    expect(res.body.result.profile.identity.name).to.not.equal("");
+  });
+
+  test("Images are a URL or null, never a placeholder", function() {
+    const images = res.body.result.profile.images;
+    expect(images).to.have.property("profilePhoto");
+    expect(images).to.have.property("backgroundPhoto");
+    for (const key of ["profilePhoto", "backgroundPhoto"]) {
+      if (images[key] !== null) {
+        expect(images[key]).to.match(/^https:\/\//);
+      }
+    }
+  });
+
+  test("Every enabled section is present, empty ones as []", function() {
+    for (const section of res.body.result.meta.sectionsReturned) {
+      const value = res.body.result[section] ?? res.body.result.profile[section];
+      expect(value, `section ${section} is missing`).to.not.equal(undefined);
+    }
+  });
+}
+
+docs {
+  # Scrape a profile
+
+  The main endpoint. Takes a LinkedIn member profile URL and returns the profile
+  as structured JSON.
+
+  Sections come from the deployment config unless the body overrides them.
+
+  `meta.sectionsUnavailable` lists sections that were enabled but that LinkedIn
+  did not provide for this profile — worth checking, because an empty array is a
+  real answer, not a failure.
+}

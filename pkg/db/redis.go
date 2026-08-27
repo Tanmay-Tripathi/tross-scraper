@@ -15,26 +15,19 @@ import (
 
 const defaultPoolSize = 20
 
-// CacheStoreMethods is the cache surface the rest of the service depends on.
-// Keeping it an interface lets services and middlewares be unit-tested with a
-// fake instead of a live Redis.
+// CacheStoreMethods is the cache surface the service depends on; an interface so
+// callers can be tested against a fake.
 type CacheStoreMethods interface {
 	Set(ctx context.Context, key, value string, ttl time.Duration) error
-	// SetNX stores value only when key is absent and reports whether it won.
-	SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
 	// SetJSON marshals value to JSON before storing it.
 	SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error
 	// Get returns the value at key, or defaultValue when the key is missing.
 	Get(ctx context.Context, key, defaultValue string) (string, error)
 	// GetJSON unmarshals the value at key into dest and reports whether the key existed.
 	GetJSON(ctx context.Context, key string, dest any) (bool, error)
-	Exists(ctx context.Context, key string) (bool, error)
 	Delete(ctx context.Context, keys ...string) error
-	// DeletePattern removes every key matching a Redis glob pattern, scanning in batches.
-	DeletePattern(ctx context.Context, pattern string) error
 	Incr(ctx context.Context, key string) (int64, error)
 	Expire(ctx context.Context, key string, ttl time.Duration) error
-	TTL(ctx context.Context, key string) (time.Duration, error)
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -46,7 +39,7 @@ type CacheConfig struct {
 	Username   string
 	Password   string
 	TlsEnabled bool
-	// PoolSize caps the socket pool. A zero value uses defaultPoolSize.
+	// PoolSize caps the socket pool; zero uses defaultPoolSize.
 	PoolSize int
 }
 
@@ -54,12 +47,8 @@ type cacheStore struct {
 	client *redis.Client
 }
 
-// NewRedisClient dials Redis, verifies the connection and instruments the
-// client with OpenTelemetry tracing and metrics.
-//
-// Managed Redis offerings (ElastiCache, MemoryDB, Upstash) drop idle
-// connections after roughly 20 minutes, so the pool keeps its own idle window
-// comfortably below that.
+// NewRedisClient dials Redis, verifies it and adds OTel instrumentation. The idle
+// window stays under the ~20 min managed providers use before dropping connections.
 func NewRedisClient(ctx context.Context, cfg CacheConfig, logger log.Logger) (CacheStoreMethods, error) {
 	poolSize := cfg.PoolSize
 	if poolSize <= 0 {
@@ -108,10 +97,6 @@ func (c *cacheStore) Set(ctx context.Context, key, value string, ttl time.Durati
 	return c.client.Set(ctx, key, value, ttl).Err()
 }
 
-func (c *cacheStore) SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
-	return c.client.SetNX(ctx, key, value, ttl).Result()
-}
-
 func (c *cacheStore) SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -145,39 +130,11 @@ func (c *cacheStore) GetJSON(ctx context.Context, key string, dest any) (bool, e
 	return true, nil
 }
 
-func (c *cacheStore) Exists(ctx context.Context, key string) (bool, error) {
-	count, err := c.client.Exists(ctx, key).Result()
-	return count > 0, err
-}
-
 func (c *cacheStore) Delete(ctx context.Context, keys ...string) error {
 	if len(keys) == 0 {
 		return nil
 	}
 	return c.client.Unlink(ctx, keys...).Err()
-}
-
-func (c *cacheStore) DeletePattern(ctx context.Context, pattern string) error {
-	const batchSize = 500
-
-	var cursor uint64
-	for {
-		keys, next, err := c.client.Scan(ctx, cursor, pattern, batchSize).Result()
-		if err != nil {
-			return err
-		}
-
-		if len(keys) > 0 {
-			if err := c.Delete(ctx, keys...); err != nil {
-				return err
-			}
-		}
-
-		cursor = next
-		if cursor == 0 {
-			return nil
-		}
-	}
 }
 
 func (c *cacheStore) Incr(ctx context.Context, key string) (int64, error) {
@@ -186,10 +143,6 @@ func (c *cacheStore) Incr(ctx context.Context, key string) (int64, error) {
 
 func (c *cacheStore) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	return c.client.Expire(ctx, key, ttl).Err()
-}
-
-func (c *cacheStore) TTL(ctx context.Context, key string) (time.Duration, error) {
-	return c.client.TTL(ctx, key).Result()
 }
 
 func (c *cacheStore) Ping(ctx context.Context) error {

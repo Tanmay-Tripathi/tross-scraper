@@ -13,6 +13,10 @@ import (
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/global"
 )
 
+// defaultUserAgent must look like a real browser; Go's default is an easy tell.
+const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+	"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
 // RedisConfig describes the cache connection.
 type RedisConfig struct {
 	Host       string `yaml:"host"`
@@ -23,19 +27,8 @@ type RedisConfig struct {
 	PoolSize   int    `yaml:"pool_size"`
 }
 
-// DatabaseConfig describes the Postgres connections. An empty slave DSN falls
-// back to the master, which is the normal single-instance setup.
-type DatabaseConfig struct {
-	MasterDatabaseDsn string `yaml:"master_database_dsn"`
-	SlaveDatabaseDsn  string `yaml:"slave_database_dsn"`
-	MaxOpenConns      int    `yaml:"max_open_connections"`
-	MaxIdleConns      int    `yaml:"max_idle_connections"`
-	SkipMigrations    bool   `yaml:"skip_migrations"`
-}
-
-// StringList is a []string that also accepts a comma-separated scalar. That
-// second form is what makes a list configurable from a single environment
-// variable, which is all a container platform can inject.
+// StringList is a []string that also accepts a comma-separated scalar, so a list
+// can be set from one environment variable.
 type StringList []string
 
 func (l *StringList) UnmarshalYAML(node *yaml.Node) error {
@@ -71,10 +64,32 @@ func trimAndCompact(items []string) StringList {
 	return result
 }
 
-// CorsConfig lists the browser origins allowed to call this API. An empty list
-// disables CORS entirely, which is right for a service with no browser client.
-// "*" allows any origin — acceptable for a public read-only API, never for one
-// that trusts cookies.
+// LinkedInConfig holds the upstream credentials and tuning. The cookies are never
+// committed: config names the env var, the deployment supplies the value.
+type LinkedInConfig struct {
+	// LiAt is the li_at session cookie.
+	LiAt string `yaml:"li_at"`
+	// JSessionID is the JSESSIONID value without its quotes. The client sends it
+	// quoted in the Cookie header and bare as csrf-token; LinkedIn wants both.
+	JSessionID string `yaml:"jsessionid"`
+	// UserAgent is sent on every upstream call and must look like a real browser.
+	UserAgent string `yaml:"user_agent"`
+	// RequestTimeoutSeconds bounds one upstream call.
+	RequestTimeoutSeconds int `yaml:"request_timeout_seconds"`
+	// CacheTTLMinutes is how long a scraped profile stays replayable from Redis.
+	CacheTTLMinutes int `yaml:"cache_ttl_minutes"`
+	// DailyScrapeBudget caps live scrapes per day — the guard that protects the
+	// account when traffic spikes. Zero means unlimited; never deploy that.
+	DailyScrapeBudget int `yaml:"daily_scrape_budget"`
+}
+
+// Configured reports whether both cookies are present.
+func (l LinkedInConfig) Configured() bool {
+	return strings.TrimSpace(l.LiAt) != "" && strings.TrimSpace(l.JSessionID) != ""
+}
+
+// CorsConfig lists the browser origins allowed to call this API. Empty disables
+// CORS; "*" allows any origin, which is unsafe for anything trusting cookies.
 type CorsConfig struct {
 	AllowedOrigins StringList `yaml:"allowed_origins"`
 }
@@ -84,21 +99,18 @@ type Config struct {
 	ServerPort      int    `yaml:"ServerPort"`
 	AppName         string `yaml:"AppName"`
 	AppVersion      string `yaml:"AppVersion"`
-	BaseUrl         string `yaml:"BaseUrl"`
 	Environment     string `yaml:"Environment"`
 	LogLevel        string `yaml:"LogLevel"`
 	OtlpExporterUrl string `yaml:"OtlpExporterUrl"`
 
 	Redis    RedisConfig    `yaml:"Redis"`
-	Database DatabaseConfig `yaml:"Database"`
 	Cors     CorsConfig     `yaml:"Cors"`
+	LinkedIn LinkedInConfig `yaml:"LinkedIn"`
+	Sections SectionSet     `yaml:"Sections"`
 }
 
-// Load reads the YAML file at path, expands ${VAR} and ${VAR:-default}
-// references against the environment, applies defaults and validates the result.
-//
-// Expanding environment variables is what keeps secrets out of the repository:
-// the committed file names them, the deployment supplies their values.
+// Load reads the YAML at path, expands ${VAR} and ${VAR:-default} from the
+// environment, applies defaults and validates. Expansion keeps secrets out of the repo.
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -118,10 +130,8 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// expandEnv resolves ${VAR} and ${VAR:-default} references. The default form
-// matters for numeric and boolean YAML fields: an unset ${VAR} would expand to
-// nothing and leave the document with a bare key, so every such field in a
-// committed config supplies a fallback.
+// expandEnv resolves ${VAR} and ${VAR:-default}. The fallback form matters for
+// numeric and boolean fields, where an unset var would leave a bare YAML key.
 func expandEnv(raw string) string {
 	return os.Expand(raw, func(reference string) string {
 		name, fallback, hasFallback := strings.Cut(reference, ":-")
@@ -152,27 +162,36 @@ func (c *Config) applyDefaults() {
 	if c.Redis.Port == 0 {
 		c.Redis.Port = 6379
 	}
-	if strings.TrimSpace(c.Database.SlaveDatabaseDsn) == "" {
-		c.Database.SlaveDatabaseDsn = c.Database.MasterDatabaseDsn
+	if c.LinkedIn.UserAgent == "" {
+		c.LinkedIn.UserAgent = defaultUserAgent
 	}
+	if c.LinkedIn.RequestTimeoutSeconds == 0 {
+		c.LinkedIn.RequestTimeoutSeconds = 20
+	}
+	if c.LinkedIn.CacheTTLMinutes == 0 {
+		c.LinkedIn.CacheTTLMinutes = 360 // 6 hours
+	}
+	// All-on by default; switching a section off is the deliberate act.
+	if len(c.Sections) == 0 {
+		c.Sections = AllEnabled()
+	}
+	// DevTools shows JSESSIONID quoted and people paste it verbatim, so strip them.
+	c.LinkedIn.JSessionID = strings.Trim(strings.TrimSpace(c.LinkedIn.JSessionID), `"`)
+	c.LinkedIn.LiAt = strings.TrimSpace(c.LinkedIn.LiAt)
 }
 
-// validate fails fast at startup rather than letting a misconfigured instance
-// serve traffic and fail on the first request.
+// validate fails fast at startup rather than on the first request.
 func (c *Config) validate() error {
 	var problems []error
 
 	if strings.TrimSpace(c.AppName) == "" {
-		problems = append(problems, errors.New("AppName is required"))
-	}
-	if strings.TrimSpace(c.Database.MasterDatabaseDsn) == "" {
-		problems = append(problems, errors.New("Database.master_database_dsn is required"))
+		problems = append(problems, errors.New("key AppName is required"))
 	}
 	if strings.TrimSpace(c.Redis.Host) == "" {
-		problems = append(problems, errors.New("Redis.host is required"))
+		problems = append(problems, errors.New("key Redis.host is required"))
 	}
 	if !global.Environment(c.Environment).IsValid() {
-		problems = append(problems, fmt.Errorf("Environment %q must be one of local, stg, uat, prd", c.Environment))
+		problems = append(problems, fmt.Errorf("key Environment is %q, want one of local, stg, uat, prd", c.Environment))
 	}
 	return errors.Join(problems...)
 }

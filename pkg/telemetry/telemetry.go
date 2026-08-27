@@ -1,5 +1,5 @@
-// Package telemetry wires OpenTelemetry tracing and Prometheus metrics into
-// the Gin router, and stamps a request/correlation ID onto every request.
+// Package telemetry wires OTel tracing and Prometheus metrics into the router and
+// stamps a request and correlation ID onto every request.
 package telemetry
 
 import (
@@ -30,15 +30,13 @@ type Config struct {
 	ServiceName string
 	AppEnv      string
 	AppVersion  string
-	// ExporterURL is the OTLP/HTTP endpoint (host:port). Tracing is disabled
-	// when it is empty, which is the normal case for local development.
+	// ExporterURL is the OTLP/HTTP endpoint; empty disables tracing.
 	ExporterURL string
 }
 
 // Methods is the telemetry surface the app wiring depends on.
 type Methods interface {
-	// EnableGinTracing installs the request-ID, tracing and metrics middleware
-	// and exposes the Prometheus scrape endpoint.
+	// EnableGinTracing installs the middleware and exposes /metrics.
 	EnableGinTracing(engine *gin.Engine)
 	// Shutdown flushes any buffered spans.
 	Shutdown(ctx context.Context) error
@@ -50,8 +48,7 @@ type telemetry struct {
 	shutdown func(context.Context) error
 }
 
-// New initialises the trace provider (when an exporter is configured) and the
-// Prometheus metric collectors.
+// New initialises the trace provider and metric collectors.
 func New(cfg Config) Methods {
 	t := &telemetry{
 		cfg:     cfg,
@@ -135,8 +132,8 @@ func (t *telemetry) Shutdown(ctx context.Context) error {
 	return t.shutdown(ctx)
 }
 
-// TraceIDMiddleware puts a request ID and a correlation ID on the request
-// context so every log line emitted downstream can be tied back to one call.
+// TraceIDMiddleware puts a request and correlation ID on the context, so every
+// downstream log line ties back to one call.
 func TraceIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := firstNonEmpty(

@@ -1,5 +1,5 @@
-// Package app owns the composition root: it builds every dependency in
-// order, starts the HTTP server and tears everything down on shutdown.
+// Package app is the composition root: it builds every dependency, serves HTTP,
+// and tears everything down on shutdown.
 package app
 
 import (
@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Tanmay-Tripathi/tross-scraper/cmd/app/middlewares"
+	"github.com/Tanmay-Tripathi/tross-scraper/internal/clients"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/config"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/controllers"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
@@ -34,11 +35,11 @@ type App struct {
 	cfg    *config.Config
 	logger log.Logger
 
-	db        *db.Store
 	cache     db.CacheStoreMethods
 	telemetry telemetry.Methods
 
 	repos       *repositories.Repositories
+	clients     *clients.Clients
 	services    *services.Services
 	controllers *controllers.Controllers
 	middlewares *middlewares.Middlewares
@@ -47,18 +48,11 @@ type App struct {
 	http   *http.Server
 }
 
-// New builds a fully wired application. The caller owns the returned App and
-// must call Run, which shuts everything down before it returns.
-//
-// Wiring order matters and mirrors the dependency direction:
-//
-//	db/cache/telemetry -> repositories -> services -> controllers -> middlewares -> router
+// New builds a fully wired application; the caller must call Run. Wiring order
+// mirrors the dependency direction, from stores out to the router.
 func New(ctx context.Context, cfg *config.Config, logger log.Logger) (*App, error) {
 	app := &App{cfg: cfg, logger: logger}
 
-	if err := app.initDatabase(); err != nil {
-		return nil, err
-	}
 	if err := app.initCache(ctx); err != nil {
 		return nil, err
 	}
@@ -71,10 +65,15 @@ func New(ctx context.Context, cfg *config.Config, logger log.Logger) (*App, erro
 		ExporterURL: cfg.OtlpExporterUrl,
 	})
 
-	app.repos = repositories.NewRepositories(app.db, app.cache, logger)
-	app.services = services.NewServices(cfg, app.db, app.repos, app.cache, logger)
+	// No Postgres: the service keeps no relational state, only the Redis cache.
+	// The *db.Store seam stays wired so adding one is a change here and nowhere else.
+	var store *db.Store
+
+	app.clients = clients.NewClients(cfg, logger, app.cache)
+	app.repos = repositories.NewRepositories(store, app.cache, logger)
+	app.services = services.NewServices(cfg, store, app.repos, app.cache, logger, app.clients)
 	app.controllers = controllers.NewControllers(cfg, logger, app.services)
-	app.middlewares = middlewares.NewMiddlewares(cfg, app.db, app.repos, app.cache, logger)
+	app.middlewares = middlewares.NewMiddlewares(cfg, store, app.repos, app.cache, logger)
 
 	app.router = app.newRouter()
 	app.http = &http.Server{
@@ -86,29 +85,6 @@ func New(ctx context.Context, cfg *config.Config, logger log.Logger) (*App, erro
 	}
 
 	return app, nil
-}
-
-func (app *App) initDatabase() error {
-	store, err := db.NewStore(app.logger, db.StoreConfig{
-		MasterDsn: app.cfg.Database.MasterDatabaseDsn,
-		SlaveDsn:  app.cfg.Database.SlaveDatabaseDsn,
-		MasterConfig: db.DBConfig{
-			MaxOpenConns: app.cfg.Database.MaxOpenConns,
-			MaxIdleConns: app.cfg.Database.MaxIdleConns,
-		},
-		SlaveConfig: db.DBConfig{
-			MaxOpenConns: app.cfg.Database.MaxOpenConns,
-			MaxIdleConns: app.cfg.Database.MaxIdleConns,
-		},
-		AppName:        app.cfg.AppName,
-		SkipMigrations: app.cfg.Database.SkipMigrations,
-	})
-	if err != nil {
-		return fmt.Errorf("database initialization failed: %w", err)
-	}
-
-	app.db = store
-	return nil
 }
 
 func (app *App) initCache(ctx context.Context) error {
@@ -143,8 +119,7 @@ func (app *App) newRouter() *gin.Engine {
 	return router
 }
 
-// Run serves HTTP until the process receives SIGINT or SIGTERM, then drains
-// in-flight requests and releases every dependency.
+// Run serves HTTP until SIGINT or SIGTERM, then drains and releases everything.
 func (app *App) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -175,7 +150,7 @@ func (app *App) Run(ctx context.Context) error {
 	return err
 }
 
-// shutdown releases dependencies in the reverse of their construction order.
+// shutdown releases dependencies in reverse construction order.
 func (app *App) shutdown() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -188,11 +163,6 @@ func (app *App) shutdown() {
 	if app.cache != nil {
 		if err := app.cache.Close(); err != nil {
 			app.logger.Errorf("failed to close cache: %v", err)
-		}
-	}
-	if app.db != nil {
-		if err := app.db.Close(); err != nil {
-			app.logger.Errorf("failed to close database: %v", err)
 		}
 	}
 

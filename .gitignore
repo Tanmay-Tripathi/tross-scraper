@@ -16,6 +16,9 @@ config/local.yml
 .env
 .env.local
 
+# Spike fixtures: raw responses containing real people's profile data
+testdata/fixtures/
+
 # Live-reload PID file
 .pid
 
@@ -26,3 +29,4 @@ config/local.yml
 *.log
 __debug_bin*
 temp/
+local.yml
