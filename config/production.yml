@@ -38,8 +38,3 @@ Database:
 #   CORS_ALLOWED_ORIGINS=https://tross-scraper-frontend.onrender.com
 Cors:
   allowed_origins: "${CORS_ALLOWED_ORIGINS}"
-
-SQS:
-  enabled: ${SQS_ENABLED:-false}
-  region: "${AWS_REGION:-us-east-1}"
-  endpoint: ""

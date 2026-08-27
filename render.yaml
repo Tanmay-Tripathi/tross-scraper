@@ -53,8 +53,6 @@ services:
       # network, so TLS stays off here.
       - key: REDIS_TLS_ENABLED
         value: "false"
-      - key: SQS_ENABLED
-        value: "false"
       # Browser origins allowed to call this API. Update this to the frontend
       # service's real URL after the first deploy.
       - key: CORS_ALLOWED_ORIGINS

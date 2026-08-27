@@ -15,14 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Tanmay-Tripathi/tross-scraper/cmd/app/middlewares"
-	"github.com/Tanmay-Tripathi/tross-scraper/internal/clients"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/config"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/controllers"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/services"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/db"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/log"
-	"github.com/Tanmay-Tripathi/tross-scraper/pkg/network"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/telemetry"
 )
 
@@ -36,13 +34,11 @@ type App struct {
 	cfg    *config.Config
 	logger log.Logger
 
-	db         *db.Store
-	cache      db.CacheStoreMethods
-	networkOps network.NetworkOpsMethods
-	telemetry  telemetry.Methods
+	db        *db.Store
+	cache     db.CacheStoreMethods
+	telemetry telemetry.Methods
 
 	repos       *repositories.Repositories
-	clients     *clients.Clients
 	services    *services.Services
 	controllers *controllers.Controllers
 	middlewares *middlewares.Middlewares
@@ -56,7 +52,7 @@ type App struct {
 //
 // Wiring order matters and mirrors the dependency direction:
 //
-//	db/cache/telemetry -> clients -> repositories -> services -> controllers -> middlewares -> router
+//	db/cache/telemetry -> repositories -> services -> controllers -> middlewares -> router
 func New(ctx context.Context, cfg *config.Config, logger log.Logger) (*App, error) {
 	app := &App{cfg: cfg, logger: logger}
 
@@ -64,9 +60,6 @@ func New(ctx context.Context, cfg *config.Config, logger log.Logger) (*App, erro
 		return nil, err
 	}
 	if err := app.initCache(ctx); err != nil {
-		return nil, err
-	}
-	if err := app.initNetworkOps(); err != nil {
 		return nil, err
 	}
 
@@ -78,11 +71,10 @@ func New(ctx context.Context, cfg *config.Config, logger log.Logger) (*App, erro
 		ExporterURL: cfg.OtlpExporterUrl,
 	})
 
-	app.clients = clients.NewClients(ctx, cfg, logger, app.cache, app.networkOps)
 	app.repos = repositories.NewRepositories(app.db, app.cache, logger)
-	app.services = services.NewServices(cfg, app.db, app.repos, app.cache, logger, app.clients)
+	app.services = services.NewServices(cfg, app.db, app.repos, app.cache, logger)
 	app.controllers = controllers.NewControllers(cfg, logger, app.services)
-	app.middlewares = middlewares.NewMiddlewares(cfg, app.db, app.repos, app.cache, logger, app.clients)
+	app.middlewares = middlewares.NewMiddlewares(cfg, app.db, app.repos, app.cache, logger)
 
 	app.router = app.newRouter()
 	app.http = &http.Server{
@@ -133,16 +125,6 @@ func (app *App) initCache(ctx context.Context) error {
 	}
 
 	app.cache = cache
-	return nil
-}
-
-func (app *App) initNetworkOps() error {
-	ops, err := network.NewNetworkOps(app.cfg.AppName, app.logger, network.Options{})
-	if err != nil {
-		return fmt.Errorf("network client initialization failed: %w", err)
-	}
-
-	app.networkOps = ops
 	return nil
 }
 
@@ -198,9 +180,6 @@ func (app *App) shutdown() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if app.clients != nil {
-		app.clients.Close()
-	}
 	if app.telemetry != nil {
 		if err := app.telemetry.Shutdown(shutdownCtx); err != nil {
 			app.logger.Errorf("failed to flush telemetry: %v", err)

@@ -4,7 +4,6 @@
 package middlewares
 
 import (
-	"github.com/Tanmay-Tripathi/tross-scraper/internal/clients"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/config"
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/db"
@@ -24,7 +23,6 @@ func NewMiddlewares(
 	repos *repositories.Repositories,
 	cache db.CacheStoreMethods,
 	logger log.Logger,
-	clients *clients.Clients,
 ) *Middlewares {
 	access := &MiddlewareAccess{
 		Cfg:          cfg,
@@ -32,7 +30,6 @@ func NewMiddlewares(
 		Cache:        cache,
 		Logger:       logger,
 		Repositories: repos,
-		Clients:      clients,
 	}
 
 	return &Middlewares{

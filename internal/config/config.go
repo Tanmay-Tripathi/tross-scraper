@@ -79,15 +79,6 @@ type CorsConfig struct {
 	AllowedOrigins StringList `yaml:"allowed_origins"`
 }
 
-// SQSConfig describes the AWS messaging setup.
-type SQSConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Region  string `yaml:"region"`
-	// Endpoint overrides the AWS endpoint; point it at LocalStack
-	// (http://localhost:4566) for local development.
-	Endpoint string `yaml:"endpoint"`
-}
-
 // Config is the fully resolved application configuration.
 type Config struct {
 	ServerPort      int    `yaml:"ServerPort"`
@@ -101,7 +92,6 @@ type Config struct {
 	Redis    RedisConfig    `yaml:"Redis"`
 	Database DatabaseConfig `yaml:"Database"`
 	Cors     CorsConfig     `yaml:"Cors"`
-	SQS      SQSConfig      `yaml:"SQS"`
 }
 
 // Load reads the YAML file at path, expands ${VAR} and ${VAR:-default}
@@ -184,10 +174,6 @@ func (c *Config) validate() error {
 	if !global.Environment(c.Environment).IsValid() {
 		problems = append(problems, fmt.Errorf("Environment %q must be one of local, stg, uat, prd", c.Environment))
 	}
-	if c.SQS.Enabled && strings.TrimSpace(c.SQS.Region) == "" {
-		problems = append(problems, errors.New("SQS.region is required when SQS.enabled is true"))
-	}
-
 	return errors.Join(problems...)
 }
 

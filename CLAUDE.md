@@ -18,7 +18,6 @@ Monorepo layout:
   - HTTP API built with **Gin**.
   - **PostgreSQL** as the primary database (migrations in `migrations/postgres/`).
   - **Redis** for caching.
-  - **AWS SQS/SNS** for event-driven background work (disabled by default).
   - Observability via **OpenTelemetry** traces, **Prometheus** metrics and **zerolog** structured logs.
   - Module path: `github.com/Tanmay-Tripathi/tross-scraper`.
 - **Frontend** (`frontend/`) — standalone Vite 7 + React 19 + TypeScript SPA, Tailwind CSS 3 + shadcn/ui, linted with Biome, built with npm. It is a thin client over the API, not a library.
@@ -72,9 +71,8 @@ make fe-lint       # biome check --write
 | Directory               | Responsibility                                                            |
 |-------------------------|---------------------------------------------------------------------------|
 | `internal/controllers`  | HTTP handlers: parse, validate, map, call a service, write the response.  |
-| `internal/services`     | Business logic and orchestration. Calls repositories and clients.         |
+| `internal/services`     | Business logic and orchestration. Calls repositories.                     |
 | `internal/repositories` | All Postgres and cache access.                                            |
-| `internal/clients`      | External integrations (AWS SQS/SNS, third-party HTTP APIs).               |
 | `internal/models`       | Domain models. The only types services and repositories exchange.         |
 | `internal/requests`     | Inbound request DTOs. Created with the first feature that takes a body.   |
 | `internal/response`     | Outbound response DTOs.                                                   |
@@ -89,8 +87,6 @@ Middlewares live in `cmd/app/middlewares/`: `Cors` is applied globally in `newRo
 |--------------------|-------------------------------------------------------------------------|
 | `pkg/db`           | Postgres store (master/slave + migrations) and the Redis cache.         |
 | `pkg/log`          | Context-aware structured logger over zerolog.                           |
-| `pkg/network`      | The shared outbound HTTP client.                                        |
-| `pkg/queue/awssqs` | Low-level SQS/SNS wrapper: provisioning, publishing, worker receiver.   |
 | `pkg/telemetry`    | OTel tracing, Prometheus metrics, request/correlation IDs.              |
 | `pkg/mapper`       | DTO ↔ model conversion.                                                 |
 | `pkg/validation`   | Request payload validation and normalisation helpers.                   |
@@ -100,10 +96,10 @@ Middlewares live in `cmd/app/middlewares/`: `Cors` is applied globally in `newRo
 ### Direction of dependencies — always
 
 ```
-route → controller → service → repository (+ clients) → Postgres / Redis / SQS / external APIs
+route → controller → service → repository → Postgres / Redis
 ```
 
-Never call a repository or a client directly from a route or a middleware. Any change that violates this is a bug.
+Never call a repository directly from a route or a middleware. Any change that violates this is a bug.
 
 ---
 
@@ -121,7 +117,7 @@ Never call a repository or a client directly from a route or a middleware. Any c
    - Write the response with `utils.SendApiResponseV2` — **never** `ctx.JSON` directly.
 
 3. **Service** (`internal/services`)
-   - Implement the use case. Call repositories and clients.
+   - Implement the use case. Call repositories.
    - Work with domain models and `*exceptions.ApplicationError` only. **No Gin types, no HTTP status codes, no raw JSON.**
 
 4. **Repository** (`internal/repositories`)
@@ -217,11 +213,7 @@ Use `pkg/log` everywhere.
 
 - Log an error **once**, at the layer that detects it. Do not re-log the same failure as it bubbles up unless you are adding context.
 - Include the identifiers that make debugging possible: entity IDs, queue name, message ID, cache key.
-- **Never log secrets, credentials, cookies or session tokens.** `pkg/network` already strips query strings from logged URLs — keep it that way.
-
-### 7.4 SQS / async flows
-
-When handling a queue message, always log the queue name, the message ID, and the outcome. Trace IDs are lifted off the SNS message attributes automatically by the receiver.
+- **Never log secrets, credentials, cookies or session tokens.** Strip query strings from any URL you log — they routinely carry tokens.
 
 ---
 
@@ -242,11 +234,13 @@ Migrations live in `migrations/postgres/` and run automatically at startup. Crea
 
 ## 9. External Clients and Configuration
 
-External dependencies live under `internal/clients`.
+The service currently has no outbound integrations. **The first one — the LinkedIn client — creates the `internal/clients` layer**, following these rules:
 
-- Add a new client as `internal/clients/client_<name>.go`, expose it through an interface, and wire it in `NewClients`.
-- Build outbound HTTP on `pkg/network.NetworkOpsMethods` rather than a bare `http.Client`, so timeouts, trace-header propagation and logging stay consistent.
+- One file per integration, `internal/clients/client_<name>.go`, behind a `Client<Name>Methods` interface so services depend on an abstraction and tests can fake it.
+- A `Clients` aggregate and a `NewClients` constructor in `internal/clients/main.go`, wired from `cmd/app/app.go` and threaded to services through `ServiceAccess.Clients`.
+- Share one HTTP caller across clients rather than a bare `http.Client` per call site, so timeouts, retries, trace-header propagation and URL-redacting logs stay consistent.
 - A client whose dependency is unreachable is logged and left `nil` — a degraded downstream must not take the API down. Callers check for `nil`.
+- Services call clients; controllers and repositories never do.
 
 Configuration rules:
 
@@ -312,7 +306,7 @@ Each layer follows the same DI shape:
 - **Concurrency** — pass context into any goroutine doing work; use bounded worker pools, never unbounded goroutine spawning.
 - **Security** — validate every external input, use parameterised queries, hash password-like secrets with a real KDF, and keep credentials in the environment.
 - **Performance** — profile before optimising; use pagination or streaming for anything that could return many rows; set timeouts on every external call.
-- **Testing** — prefer table-driven tests; mock repositories and clients in service tests; cover edge cases as well as the happy path.
+- **Testing** — prefer table-driven tests; mock repositories in service tests; cover edge cases as well as the happy path.
 - **Packages** — small and cohesive; no import cycles.
 - **Context** — `context.Context` is the first parameter of any function doing I/O. Never store it in a struct or a global.
 - **Dependencies** — check a new library for known vulnerabilities before adding it.
@@ -321,7 +315,7 @@ Each layer follows the same DI shape:
 
 ## 12. Performance and Safety
 
-- Pass `context.Context` down to every DB, cache, SQS and HTTP call.
+- Pass `context.Context` down to every DB, cache and HTTP call.
 - Paginate or stream any endpoint that could return many rows.
 - Batch to avoid N+1 queries.
 - No global mutable state — inject through `cmd/app/app.go`.
