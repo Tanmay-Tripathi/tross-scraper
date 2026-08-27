@@ -13,10 +13,8 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratePostgres "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"go.opentelemetry.io/otel/attribute"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/plugin/opentelemetry/tracing"
 
 	"github.com/Tanmay-Tripathi/tross-scraper/pkg/log"
 )
@@ -93,8 +91,6 @@ func NewStore(logger log.Logger, cfg StoreConfig) (*Store, error) {
 			return nil, fmt.Errorf("run migrations: %w", err)
 		}
 	}
-
-	store.setupTracing()
 
 	logger.Infof("connected to postgres database %q", databaseName)
 	return store, nil
@@ -190,14 +186,11 @@ func newMigrator(sqlDB *sql.DB, databaseName string) (*migrate.Migrate, error) {
 	return migrator, nil
 }
 
-func (s *Store) setupTracing() {
-	for role, handle := range map[string]*gorm.DB{"master": s.MasterDB, "slave": s.SlaveDB} {
-		plugin := tracing.NewPlugin(tracing.WithAttributes(attribute.String("db.role", role)))
-		if err := handle.Use(plugin); err != nil {
-			s.Logger.Errorf("failed to enable tracing on %s database: %v", role, err)
-		}
-	}
-}
+// There is deliberately no GORM query tracing here. It used to come from
+// gorm.io/plugin/opentelemetry/tracing, whose module requires the ClickHouse
+// driver — a whole database client pulled into every build to instrument a store
+// nothing constructs (see CLAUDE.md section 8). If Postgres is ever wired up,
+// add the plugin back in that same commit, where the cost buys something.
 
 // Begin opens a transaction on the master handle.
 func (s *Store) Begin(ctx context.Context) (*gorm.DB, error) {
