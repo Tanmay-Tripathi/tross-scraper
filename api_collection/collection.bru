@@ -1,0 +1,25 @@
+meta {
+  name: tross-scraper
+  seq: 1
+}
+
+auth {
+  mode: none
+}
+
+docs {
+  # Tross Scraper API
+  
+  Bruno collection for the LinkedIn Profile API.
+  
+  ## Endpoints
+  
+  - `GET /public/v1/health` — liveness, safe to expose publicly
+  - `GET /private/v1/health/live` — liveness, for the orchestrator
+  - `GET /private/v1/health/ready` — readiness; probes Postgres and Redis and
+    returns 503 when a dependency is down
+  
+  ## Setup
+  
+  Select the `local` environment, or override `host` to point at a deployment.
+}

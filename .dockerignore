@@ -1,0 +1,9 @@
+.git
+.github
+frontend
+api_collection
+*.md
+config/local.yml
+server
+dist
+node_modules

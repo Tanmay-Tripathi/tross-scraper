@@ -1,0 +1,81 @@
+# Render Blueprint — provisions the API, its Postgres and Redis, and the
+# frontend as a static site, all over HTTPS.
+#
+# Deploy: push this repo to GitHub, then in the Render dashboard choose
+# New → Blueprint and point it at the repository.
+#
+# After the first deploy, cross-reference the two service URLs:
+#   - set the frontend's VITE_API_HOST to the API's URL, then rebuild (Vite
+#     inlines that value at build time, so a restart is not enough), and
+#   - set the API's CORS_ALLOWED_ORIGINS to the frontend's URL.
+
+databases:
+  - name: tross-scraper-db
+    databaseName: tross_scraper
+    user: tross
+    plan: free
+
+services:
+  - type: keyvalue
+    name: tross-scraper-cache
+    plan: free
+    # Reachable only from other services in this blueprint.
+    ipAllowList: []
+
+  - type: web
+    name: tross-scraper-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /public/v1/health
+    envVars:
+      - key: CONFIG_FILE
+        value: ./config/production.yml
+      - key: APP_ENV
+        value: prd
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tross-scraper-db
+          property: connectionString
+      - key: REDIS_HOST
+        fromService:
+          name: tross-scraper-cache
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: tross-scraper-cache
+          type: keyvalue
+          property: port
+      # Render's managed Key Value instances are plaintext inside the private
+      # network, so TLS stays off here.
+      - key: REDIS_TLS_ENABLED
+        value: "false"
+      - key: SQS_ENABLED
+        value: "false"
+      # Browser origins allowed to call this API. Update this to the frontend
+      # service's real URL after the first deploy.
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://tross-scraper-frontend.onrender.com
+
+  - type: web
+    name: tross-scraper-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_APP_NAME
+        value: Tross Scraper
+      - key: VITE_API_HOST
+        # Replace with the API service's URL after the first deploy.
+        value: https://tross-scraper-api.onrender.com
+      - key: VITE_LOG_ERRORS
+        value: "false"
+    routes:
+      # SPA fallback so client-side routes resolve.
+      - type: rewrite
+        source: /*
+        destination: /index.html

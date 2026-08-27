@@ -1,0 +1,43 @@
+# Copy this file to config/local.yml and fill in the blanks.
+# config/local.yml is gitignored — never commit real credentials.
+#
+# Every value supports ${VAR} expansion, so deployments can supply secrets
+# through the environment instead of a file on disk.
+
+ServerPort: 4201
+AppName: "tross-scraper"
+AppVersion: "0.1.0"
+BaseUrl: "http://localhost:4201"
+Environment: "local" # local | stg | uat | prd
+LogLevel: "info"     # debug | info | warn | error
+
+# OpenTelemetry OTLP/HTTP endpoint (host:port). Leave empty to disable tracing.
+OtlpExporterUrl: ""
+
+Redis:
+  host: "localhost"
+  port: 6379
+  username: ""
+  password: ""
+  tls_enabled: false
+  pool_size: 20
+
+Database:
+  master_database_dsn: "postgres://tross:tross@localhost:5432/tross_scraper?sslmode=disable"
+  # Leave the slave DSN empty to reuse the master connection.
+  slave_database_dsn: ""
+  max_open_connections: 10
+  max_idle_connections: 2
+  skip_migrations: false
+
+# Browser origins allowed to call this API. Empty disables CORS.
+Cors:
+  allowed_origins:
+    - "http://localhost:4204"
+
+SQS:
+  # Messaging is off by default; the API works without AWS credentials.
+  enabled: false
+  region: "us-east-1"
+  # Point at LocalStack for local development, e.g. http://localhost:4566.
+  endpoint: ""

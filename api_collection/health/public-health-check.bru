@@ -1,0 +1,29 @@
+meta {
+  name: public-health-check
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{host}}/public/v1/health
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+
+  test("Returns the success envelope", function() {
+    expect(res.body.code).to.equal("00000");
+    expect(res.body.result.service).to.be.a("string");
+  });
+}
+
+docs {
+  # Public health check
+
+  Liveness probe. Answers as long as the process is up; it does not touch
+  Postgres or Redis, so it stays cheap enough for an uptime monitor.
+}

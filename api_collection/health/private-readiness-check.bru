@@ -1,0 +1,31 @@
+meta {
+  name: private-readiness-check
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{host}}/private/v1/health/ready
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+
+  test("All dependencies are up", function() {
+    expect(res.body.result.status).to.equal("healthy");
+    expect(res.body.result.dependencies.database.status).to.equal("up");
+    expect(res.body.result.dependencies.cache.status).to.equal("up");
+  });
+}
+
+docs {
+  # Private readiness check
+
+  Probes Postgres and Redis. Returns 503 with code `HLT01` when a dependency is
+  unreachable, so an orchestrator pulls the instance out of rotation instead of
+  routing traffic to it.
+}
