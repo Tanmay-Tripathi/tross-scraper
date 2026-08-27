@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Tanmay-Tripathi/tross-scraper/internal/models"
+	"github.com/Tanmay-Tripathi/tross-scraper/internal/repositories"
 )
 
 // ServiceHealthMethods reports the service's own readiness.
@@ -34,7 +36,11 @@ func (s *ServiceHealth) Check(ctx context.Context) models.HealthStatus {
 		LinkedIn:    models.Disabled(),
 	}
 
-	if err := repo.PingDatabase(ctx); err != nil {
+	// Running without Postgres is deliberate, not a failure.
+	switch err := repo.PingDatabase(ctx); {
+	case errors.Is(err, repositories.ErrDatabaseNotConfigured):
+		status.Database = models.Disabled()
+	case err != nil:
 		logger.Errorf("health check: database unreachable: %v", err)
 		status.Database = models.Down(err)
 	}

@@ -1,4 +1,4 @@
-// Package repositories owns all Postgres and cache access.
+// Package repositories owns all cache access, and the optional Postgres seam.
 package repositories
 
 import (

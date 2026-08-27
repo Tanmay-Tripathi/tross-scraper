@@ -27,15 +27,6 @@ type RedisConfig struct {
 	PoolSize   int    `yaml:"pool_size"`
 }
 
-// DatabaseConfig describes the Postgres connections. An empty slave DSN reuses the master.
-type DatabaseConfig struct {
-	MasterDatabaseDsn string `yaml:"master_database_dsn"`
-	SlaveDatabaseDsn  string `yaml:"slave_database_dsn"`
-	MaxOpenConns      int    `yaml:"max_open_connections"`
-	MaxIdleConns      int    `yaml:"max_idle_connections"`
-	SkipMigrations    bool   `yaml:"skip_migrations"`
-}
-
 // StringList is a []string that also accepts a comma-separated scalar, so a list
 // can be set from one environment variable.
 type StringList []string
@@ -108,13 +99,11 @@ type Config struct {
 	ServerPort      int    `yaml:"ServerPort"`
 	AppName         string `yaml:"AppName"`
 	AppVersion      string `yaml:"AppVersion"`
-	BaseUrl         string `yaml:"BaseUrl"`
 	Environment     string `yaml:"Environment"`
 	LogLevel        string `yaml:"LogLevel"`
 	OtlpExporterUrl string `yaml:"OtlpExporterUrl"`
 
 	Redis    RedisConfig    `yaml:"Redis"`
-	Database DatabaseConfig `yaml:"Database"`
 	Cors     CorsConfig     `yaml:"Cors"`
 	LinkedIn LinkedInConfig `yaml:"LinkedIn"`
 	Sections SectionSet     `yaml:"Sections"`
@@ -173,9 +162,6 @@ func (c *Config) applyDefaults() {
 	if c.Redis.Port == 0 {
 		c.Redis.Port = 6379
 	}
-	if strings.TrimSpace(c.Database.SlaveDatabaseDsn) == "" {
-		c.Database.SlaveDatabaseDsn = c.Database.MasterDatabaseDsn
-	}
 	if c.LinkedIn.UserAgent == "" {
 		c.LinkedIn.UserAgent = defaultUserAgent
 	}
@@ -200,9 +186,6 @@ func (c *Config) validate() error {
 
 	if strings.TrimSpace(c.AppName) == "" {
 		problems = append(problems, errors.New("key AppName is required"))
-	}
-	if strings.TrimSpace(c.Database.MasterDatabaseDsn) == "" {
-		problems = append(problems, errors.New("key Database.master_database_dsn is required"))
 	}
 	if strings.TrimSpace(c.Redis.Host) == "" {
 		problems = append(problems, errors.New("key Redis.host is required"))

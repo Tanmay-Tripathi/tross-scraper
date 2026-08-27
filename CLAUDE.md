@@ -17,8 +17,8 @@ anywhere in the stack. LinkedIn is reached by direct HTTP calls to its private
 JSON API; see §9.
 
 - HTTP API built with **Gin**.
-- **PostgreSQL** as the primary database (migrations in `migrations/postgres/`).
-- **Redis** for caching.
+- **Redis** for caching and the daily scrape budget. There is no relational
+  database — the service holds no persistent state (see §8).
 - Observability via **OpenTelemetry** traces, **Prometheus** metrics and **zerolog** structured logs.
 - Module path: `github.com/Tanmay-Tripathi/tross-scraper`.
 
@@ -30,7 +30,7 @@ There are **no private or internal dependencies**. Everything the service needs 
 
 ```bash
 cp config/local.example.yml config/local.yml   # first run only
-make up            # start Postgres and Redis in Docker
+make up            # start Redis in Docker
 make run           # run the API server on :4201
 make run-live      # run with live reload (requires fswatch)
 make build         # build the binary
@@ -38,10 +38,9 @@ make test          # go test ./...
 make fmt           # go fmt ./... + go mod tidy
 make vet           # go vet ./...
 make lint          # fmt + vet
-make migrate-new   # create a new Postgres migration pair
 
 go run ./cmd/spike <profile-url>...   # probe LinkedIn, save fixtures, report coverage
-make stack         # docker compose: API + Postgres + Redis
+make stack         # docker compose: API + Redis
 ```
 
 **After making changes, always run `make lint` before considering the work complete.**
@@ -54,7 +53,7 @@ make stack         # docker compose: API + Postgres + Redis
 
 - `cmd/server/main.go` — entry point: parses flags, loads config, builds the logger, hands off to the app.
 - `cmd/app/app.go` — the composition root. Builds every dependency in order, starts the HTTP server, and shuts everything down gracefully on SIGINT/SIGTERM.
-- `cmd/app/routes.go` and `cmd/app/routes_<feature>.go` — HTTP routes, grouped into public / protected / private tiers.
+- `cmd/app/routes.go` and `cmd/app/routes_<feature>.go` — HTTP routes, grouped into public / private tiers.
 - `cmd/app/middlewares/` — HTTP middlewares.
 
 ### Core layers under `internal/`
@@ -64,7 +63,7 @@ make stack         # docker compose: API + Postgres + Redis
 | `internal/controllers`  | HTTP handlers: parse, validate, map, call a service, write the response.  |
 | `internal/services`     | Business logic and orchestration. Calls repositories and clients.         |
 | `internal/clients`      | Outbound integrations, behind interfaces. Currently the LinkedIn client.  |
-| `internal/repositories` | All Postgres and cache access.                                            |
+| `internal/repositories` | All cache access. Postgres is wired but unused — see §8.                 |
 | `internal/models`       | Domain models. The only types services and repositories exchange.         |
 | `internal/requests`     | Inbound request DTOs.                                                     |
 | `internal/response`     | Outbound response DTOs.                                                   |
@@ -77,7 +76,7 @@ Middlewares live in `cmd/app/middlewares/`: `Cors` is applied globally in `newRo
 
 | Directory          | Responsibility                                                          |
 |--------------------|-------------------------------------------------------------------------|
-| `pkg/db`           | Postgres store (master/slave + migrations) and the Redis cache.         |
+| `pkg/db`           | The Redis cache, and an unwired Postgres store kept as a seam (§8).     |
 | `pkg/log`          | Context-aware structured logger over zerolog.                           |
 | `pkg/network`      | The shared outbound HTTP caller, with an optional cookie jar.           |
 | `pkg/linkedin/voyager` | LinkedIn's private API: client, URN resolver, payload structs, assembler. |
@@ -90,7 +89,7 @@ Middlewares live in `cmd/app/middlewares/`: `Cors` is applied globally in `newRo
 ### Direction of dependencies — always
 
 ```
-route → controller → service → repository / client → Postgres / Redis / LinkedIn
+route → controller → service → repository / client → Redis / LinkedIn
 ```
 
 Never call a repository or a client directly from a route or a middleware. Any change that violates this is a bug.
@@ -115,7 +114,7 @@ Never call a repository or a client directly from a route or a middleware. Any c
    - Work with domain models and `*exceptions.ApplicationError` only. **No Gin types, no HTTP status codes, no raw JSON.**
 
 4. **Repository** (`internal/repositories`)
-   - Talk to Postgres and the cache. Take and return domain models.
+   - Talk to the cache. Take and return domain models.
    - Use context-aware calls; keep each method to one logical query.
 
 ---
@@ -211,18 +210,28 @@ Use `pkg/log` everywhere.
 
 ---
 
-## 8. Repositories and the Database
+## 8. Repositories and Storage
 
-All Postgres and cache access goes through `internal/repositories`.
+**Redis is the only live datastore.** The service holds no relational state: a
+profile is fetched, mapped, cached and returned. `RepositoryAccess.Db` is a nil
+`*db.Store` and `PingDatabase` returns `ErrDatabaseNotConfigured`, which
+readiness reports as `disabled` rather than `down`.
 
-- Postgres via **GORM**: `access.Db.MasterDB` for writes, `access.Db.SlaveDB` for reads.
+Do not add a Postgres dependency without a real reason to persist something. If
+you do, wire the store in `cmd/app/app.go` — the seam is a single `var store
+*db.Store` there, and every layer below already accepts it.
+
+All cache access goes through `internal/repositories`. The rules below apply to
+Postgres if it is ever wired back in.
+
+- Postgres via **GORM**: `access.Db.MasterDB` for writes, `access.Db.SlaveDB` for reads. **Nil-check it first.**
 - Always pass `context.Context` so timeouts and cancellation propagate.
 - Keep methods narrow — one logical query, or a small coherent sequence.
 - Distinguish "not found" from a real error: return `gorm.ErrRecordNotFound` for a missing row and let the service map it to the right `ApplicationError`.
 - Use `Store.Begin`/`Commit`/`Rollback` for multi-step writes that must succeed or fail together.
 - Watch for N+1 patterns and Cartesian products on multi-relation reads. Batch or preload.
 
-Migrations live in `migrations/postgres/` and run automatically at startup. Create a pair with `make migrate-new`. An empty migrations directory is fine — the runner skips it.
+Migrations live in `migrations/postgres/` and are run by `db.NewStore`, which nothing currently calls. `make migrate-new` still creates a pair, for when a store is wired.
 
 ---
 
@@ -264,7 +273,6 @@ Configuration rules:
 6. **Validation and mapping** — `pkg/validation` and `pkg/mapper`.
 7. **Controller** — `internal/controllers/controller_<feature>.go`, registered in `main.go`.
 8. **Routes** — `cmd/app/routes_<feature>.go`, called from `addRoutes`.
-9. **Migration** — `make migrate-new`.
 10. **API examples** — add or update the Bruno requests under `api_collection/`.
 
 ### Naming conventions
@@ -288,7 +296,9 @@ Each layer follows the same DI shape:
 ### Route groups (`cmd/app/routes.go`)
 
 - `PublicApiV1` = `/public/v1` — unauthenticated.
-- `ProtectedApiV1` = `/v1` — authenticated.
+- There is no authenticated tier. `/v1` was removed along with its one route —
+  no auth middleware exists, so mounting anything there is just a second public
+  path. Add the group back in the same commit that adds the middleware.
 - `PrivateApiV1` = `/private/v1` — internal only, not routed from the internet.
 
 ---

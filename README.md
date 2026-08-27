@@ -8,7 +8,7 @@ API directly over HTTP, then unpacks the response itself. There is no browser
 automation dependency in `go.mod` and no HTML parser in the codebase — a profile
 costs about **1 second** and **30 MB**. [How it works](#approach).
 
-Go (Gin) API backed by PostgreSQL and Redis. The response is **config-driven**:
+Go (Gin) API with Redis for caching. The response is **config-driven**:
 every one of the 21 profile sections can be switched on or off, and nothing is
 ever invented — a section with no data comes back as `[]`, a missing field as
 `null`, a disabled section not at all.
@@ -102,7 +102,7 @@ git clone https://github.com/Tanmay-Tripathi/tross-scraper.git
 cd tross-scraper
 
 cp config/local.example.yml config/local.yml   # then add your cookies, see below
-make up                                        # Postgres + Redis in Docker
+make up                                        # Redis in Docker
 make run                                       # API on http://localhost:4201
 ```
 
@@ -180,7 +180,7 @@ Values support `${VAR}` and `${VAR:-default}`, resolved from the environment at
 startup. **That is how credentials stay out of this repository**: the committed
 file names the variable, the deployment supplies the value.
 
-Config is validated at boot — a missing database DSN or an unknown section name
+Config is validated at boot — a missing Redis host or an unknown section name
 stops the process rather than surfacing on the first request.
 
 ### Sections
@@ -200,7 +200,6 @@ returning nothing.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | yes | — | Postgres connection string |
 | `REDIS_HOST` | yes | — | Redis hostname |
 | `LINKEDIN_LI_AT` | yes | — | the `li_at` session cookie |
 | `LINKEDIN_JSESSIONID` | yes | — | the `JSESSIONID` value, no quotes |
@@ -264,9 +263,10 @@ it must never look like a generic 500.
 ### Health
 
 - `GET /public/v1/health` — liveness. Touches nothing, cheap enough for an uptime monitor.
-- `GET /private/v1/health/ready` — readiness. Probes Postgres, Redis **and the
-  LinkedIn session**, returning 503 if one is down, so an expired cookie shows up
-  on a dashboard rather than being discovered by a caller.
+- `GET /private/v1/health/ready` — readiness. Probes Redis **and the LinkedIn
+  session**, returning 503 if one is down, so an expired cookie shows up on a
+  dashboard rather than being discovered by a caller. `database` reports
+  `disabled` — see [Storage](#storage).
 - `GET /metrics` — Prometheus: request counts, latency histogram, in-flight gauge.
 
 ### Bruno collection
@@ -434,10 +434,32 @@ dead demo. So:
 **The full profile is cached, then filtered.** Two callers wanting different
 sections of the same person cost one scrape, not two.
 
+### Storage
+
+**Redis is the only datastore, and that is deliberate.** This service holds no
+relational state — a scrape is fetched, mapped, cached and returned. Redis earns
+its place twice over:
+
+| Use | Why Redis |
+|---|---|
+| Profile cache | a repeat request must not cost a second visit to LinkedIn |
+| Daily scrape budget | a self-expiring per-day counter, the guard on the account |
+
+There is no Postgres. Adding a database that nothing queries would mean one more
+thing to provision, one more thing to fail at boot, and — on a free tier that
+expires managed databases after a month — a live demo that dies on a timer for a
+dependency the code never used.
+
+The seam is still there: `pkg/db` keeps the store, and `RepositoryAccess.Db` is a
+nil `*db.Store`. Wiring one back in is a change in `cmd/app/app.go` and nowhere
+else. Until then readiness reports `"database": {"status": "disabled"}` —
+`disabled` rather than `down`, because absent-by-design is not a fault. The same
+state the LinkedIn client reports when it runs without cookies.
+
 ### Layering
 
 ```
-route → controller → service → repository / client → Postgres / Redis / LinkedIn
+route → controller → service → repository / client → Redis / LinkedIn
 ```
 
 Controllers own HTTP and never see LinkedIn. Services own the use case and never
@@ -448,13 +470,12 @@ ever reads an HTTP status code. Conventions are documented in [CLAUDE.md](CLAUDE
 
 ## Deployment
 
-The API is a static binary in an Alpine image running as a non-root user.
-Migrations run at startup.
+The API is a static binary in an Alpine image running as a non-root user. One
+service, one Dockerfile, plus a Redis instance.
 
 ### Render (blueprint included)
 
-[`render.yaml`](render.yaml) provisions the API with its Postgres and Redis over
-HTTPS.
+[`render.yaml`](render.yaml) provisions the API and its Redis over HTTPS.
 
 1. Push to GitHub.
 2. Render → **New → Blueprint** → select the repo.
@@ -468,7 +489,6 @@ That is the whole deploy. Health check path: `/public/v1/health`.
 ```bash
 docker build -t tross-scraper .
 docker run -p 4201:4201 \
-  -e DATABASE_URL="postgres://user:pass@host:5432/db?sslmode=require" \
   -e REDIS_HOST=redis-host \
   -e LINKEDIN_LI_AT="AQEDAS…" \
   -e LINKEDIN_JSESSIONID="ajax:1234567890" \

@@ -21,8 +21,9 @@ docs {
   **health**
   - `GET /public/v1/health` — liveness, safe to expose publicly
   - `GET /private/v1/health/live` — liveness, for the orchestrator
-  - `GET /private/v1/health/ready` — readiness; probes Postgres, Redis and the
-    LinkedIn session, returning 503 when one is down
+  - `GET /private/v1/health/ready` — readiness; probes Redis and the LinkedIn
+    session, returning 503 when one is down. `database` reports `disabled`:
+    the service keeps no relational state
   
   ## Setup
   

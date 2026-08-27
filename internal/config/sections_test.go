@@ -94,7 +94,6 @@ func TestAllSectionsIsCleanAndComplete(t *testing.T) {
 
 // The config default must survive a real config file, unknown-name check included.
 func TestSectionsLoadFromExampleConfig(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://u:p@h:5432/d?sslmode=disable")
 	t.Setenv("REDIS_HOST", "redis")
 
 	cfg, err := Load("../../config/local.example.yml")

@@ -26,7 +26,6 @@ func TestLoadProductionConfig(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CORS_ALLOWED_ORIGINS", tc.corsOrigins)
-			t.Setenv("DATABASE_URL", "postgres://user:pass@host:5432/db?sslmode=disable")
 			t.Setenv("REDIS_HOST", "redis")
 
 			cfg, err := Load(path)
@@ -49,7 +48,6 @@ func TestLoadProductionConfig(t *testing.T) {
 // The committed production config relies on ${VAR:-default} for its numeric and
 // boolean fields; a bare ${VAR} would leave them empty and silently zeroed.
 func TestProductionConfigDefaults(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://user:pass@host:5432/db?sslmode=disable")
 	t.Setenv("REDIS_HOST", "redis")
 
 	cfg, err := Load(filepath.Join("..", "..", "config", "production.yml"))
@@ -69,18 +67,13 @@ func TestProductionConfigDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "info")
 	}
-	// An empty slave DSN must fall back to the master.
-	if cfg.Database.SlaveDatabaseDsn != cfg.Database.MasterDatabaseDsn {
-		t.Errorf("SlaveDatabaseDsn = %q, want it to fall back to the master DSN", cfg.Database.SlaveDatabaseDsn)
-	}
 }
 
 func TestLoadRejectsInvalidConfig(t *testing.T) {
-	t.Setenv("DATABASE_URL", "")
 	t.Setenv("REDIS_HOST", "")
 
 	if _, err := Load(filepath.Join("..", "..", "config", "production.yml")); err == nil {
-		t.Fatal("Load() succeeded with a missing database DSN and redis host, want an error")
+		t.Fatal("Load() succeeded with a missing redis host, want an error")
 	}
 }
 

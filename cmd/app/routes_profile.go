@@ -11,10 +11,4 @@ func (app *App) addProfileRoutes(router *gin.Engine) {
 	{
 		public.POST("/profile", controller.Scrape)
 	}
-
-	// Same handler on the authenticated group, ready for when auth lands.
-	protected := router.Group(ProtectedApiV1)
-	{
-		protected.POST("/profile", controller.Scrape)
-	}
 }

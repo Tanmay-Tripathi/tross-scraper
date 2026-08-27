@@ -7,7 +7,6 @@
 ServerPort: 4201
 AppName: "tross-scraper"
 AppVersion: "0.1.0"
-BaseUrl: "http://localhost:4201"
 Environment: "local" # local | stg | uat | prd
 LogLevel: "info"     # debug | info | warn | error
 
@@ -21,14 +20,6 @@ Redis:
   password: ""
   tls_enabled: false
   pool_size: 20
-
-Database:
-  master_database_dsn: "postgres://tross:tross@localhost:5432/tross_scraper?sslmode=disable"
-  # Leave the slave DSN empty to reuse the master connection.
-  slave_database_dsn: ""
-  max_open_connections: 10
-  max_idle_connections: 2
-  skip_migrations: false
 
 # Browser origins allowed to call this API. Empty disables CORS, which is the
 # right default for a curl/server-to-server API.

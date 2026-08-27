@@ -5,9 +5,8 @@ import "github.com/gin-gonic/gin"
 // Route group prefixes: public is unauthenticated, protected sits behind
 // end-user auth, private is cluster-internal only.
 const (
-	PublicApiV1    = "/public/v1"
-	ProtectedApiV1 = "/v1"
-	PrivateApiV1   = "/private/v1"
+	PublicApiV1  = "/public/v1"
+	PrivateApiV1 = "/private/v1"
 )
 
 // addRoutes binds every route group. Each feature owns a routes_<feature>.go and

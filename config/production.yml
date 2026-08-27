@@ -2,7 +2,6 @@
 # process environment at startup, so this file is safe to commit.
 #
 # Required environment variables:
-#   DATABASE_URL  - Postgres connection string
 #   REDIS_HOST    - Redis hostname
 #   REDIS_PORT    - Redis port
 #   REDIS_PASSWORD, REDIS_USERNAME, REDIS_TLS_ENABLED - optional
@@ -15,7 +14,6 @@
 ServerPort: ${PORT:-4201}
 AppName: "tross-scraper"
 AppVersion: "${APP_VERSION:-0.1.0}"
-BaseUrl: "${BASE_URL}"
 Environment: "${APP_ENV:-prd}"
 LogLevel: "${LOG_LEVEL:-info}"
 OtlpExporterUrl: "${OTLP_EXPORTER_URL}"
@@ -28,14 +26,7 @@ Redis:
   tls_enabled: ${REDIS_TLS_ENABLED:-false}
   pool_size: 20
 
-Database:
-  master_database_dsn: "${DATABASE_URL}"
-  slave_database_dsn: ""
-  max_open_connections: 10
-  max_idle_connections: 2
-  skip_migrations: false
-
-# Comma-separated list of browser origins, e.g.
+# Comma-separated list of browser origins. Unset disables CORS.
 Cors:
   allowed_origins: "${CORS_ALLOWED_ORIGINS}"
 

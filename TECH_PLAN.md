@@ -401,8 +401,8 @@ section say the same thing — if one changes, both change.
 
 Render blueprint already exists; this adds to it. One service, one Dockerfile.
 
-- **API** — Docker web service, already wired to Postgres + Redis, health check on
-  `/public/v1/health`.
+- **API** — Docker web service, wired to Redis, health check on
+  `/public/v1/health`. No database: the service keeps no relational state.
 - **New secrets**, set in the Render dashboard and marked `sync: false` in
   `render.yaml` so they are never committed:
   `LINKEDIN_LI_AT`, `LINKEDIN_JSESSIONID`.

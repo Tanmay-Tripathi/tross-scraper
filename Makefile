@@ -57,19 +57,19 @@ version: ## print the build version
 	@echo $(VERSION)
 
 .PHONY: up
-up: ## start Postgres and Redis for local development
-	docker compose up -d postgres redis
+up: ## start Redis for local development
+	docker compose up -d redis
 
 .PHONY: down
 down: ## stop the local development stack
 	docker compose down
 
 .PHONY: stack
-stack: ## build and run the full stack (API, Postgres, Redis)
+stack: ## build and run the full stack (API, Redis)
 	docker compose up --build
 
 .PHONY: migrate-new
-migrate-new: ## create a new Postgres migration pair
+migrate-new: ## create a Postgres migration pair (unused until a store is wired)
 	@read -p "Migration name: " name; \
 	timestamp=$$(date +%Y%m%d%H%M%S); \
 	filename="$${timestamp}_$${name// /_}"; \
